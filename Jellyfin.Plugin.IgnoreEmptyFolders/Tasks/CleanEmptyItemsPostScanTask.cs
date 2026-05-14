@@ -5,7 +5,7 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tasks;
 
 public class CleanEmptyItemsPostScanTask(
     ILibraryManager libraryManager,
-    ILogger logger) : ILibraryPostScanTask
+    ILoggerFactory loggerFactory) : ILibraryPostScanTask
 {
     public Task Run(
         IProgress<double> progress,
@@ -15,7 +15,7 @@ public class CleanEmptyItemsPostScanTask(
         {
             var cleaner = new LibraryCleanupManager(
                 libraryManager,
-                logger);
+                loggerFactory);
             cleaner.CleanLibrary(progress, cancellationToken);
         }, cancellationToken);
     }

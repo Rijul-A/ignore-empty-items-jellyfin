@@ -9,9 +9,9 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class MusicCleaner(
     ILibraryManager libraryManager,
-    ILogger logger) : BaseItemCleaner(libraryManager, logger)
+    ILogger<MusicCleaner> logger)
+    : BaseItemCleaner(libraryManager, logger)
 {
-
     public override double Weight => CleanupWeights.Music;
 
     public override bool IsEnabled(PluginConfiguration config)

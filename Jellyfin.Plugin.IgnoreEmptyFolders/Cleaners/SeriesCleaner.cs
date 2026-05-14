@@ -10,9 +10,9 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class SeriesCleaner(
     ILibraryManager libraryManager,
-    ILogger logger) : BaseItemCleaner(libraryManager, logger)
+    ILogger<SeriesCleaner> logger)
+    : BaseItemCleaner(libraryManager, logger)
 {
-
     public override double Weight => CleanupWeights.Series;
 
     public override bool IsEnabled(PluginConfiguration config)

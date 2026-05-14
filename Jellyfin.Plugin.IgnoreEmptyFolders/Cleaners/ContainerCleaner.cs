@@ -9,7 +9,8 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class ContainerCleaner(
     ILibraryManager libraryManager,
-    ILogger logger) : BaseItemCleaner(libraryManager, logger)
+    ILogger<ContainerCleaner> logger)
+    : BaseItemCleaner(libraryManager, logger)
 {
 
     public override double Weight => CleanupWeights.Containers;

@@ -9,14 +9,25 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders;
 /// </summary>
 public class LibraryCleanupManager(
     ILibraryManager libraryManager,
-    ILogger logger)
+    ILoggerFactory loggerFactory)
 {
+    private readonly ILogger<LibraryCleanupManager> _logger =
+        loggerFactory.CreateLogger<LibraryCleanupManager>();
+
     private readonly List<IItemCleaner> _cleaners =
     [
-        new SeriesCleaner(libraryManager, logger),
-        new MovieCleaner(libraryManager, logger),
-        new MusicCleaner(libraryManager, logger),
-        new ContainerCleaner(libraryManager, logger)
+        new SeriesCleaner(
+            libraryManager,
+            loggerFactory.CreateLogger<SeriesCleaner>()),
+        new MovieCleaner(
+            libraryManager,
+            loggerFactory.CreateLogger<MovieCleaner>()),
+        new MusicCleaner(
+            libraryManager,
+            loggerFactory.CreateLogger<MusicCleaner>()),
+        new ContainerCleaner(
+            libraryManager,
+            loggerFactory.CreateLogger<ContainerCleaner>())
     ];
 
     /// <summary>
@@ -38,7 +49,7 @@ public class LibraryCleanupManager(
 
         if (enabledCleaners.Count == 0)
         {
-            logger.LogInformation(
+            _logger.LogInformation(
                 "Ignore Empty Folders: No cleanup tasks enabled.");
             progress.Report(100);
             return;
@@ -72,7 +83,7 @@ public class LibraryCleanupManager(
             currentStart += cleanerWeight;
         }
 
-        logger.LogInformation(
+        _logger.LogInformation(
             "Ignore Empty Folders: Total removed {Count} empty items",
             removedCount);
 

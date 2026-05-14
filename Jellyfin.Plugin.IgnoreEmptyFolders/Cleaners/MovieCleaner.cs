@@ -9,7 +9,8 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class MovieCleaner(
     ILibraryManager libraryManager,
-    ILogger logger) : BaseItemCleaner(libraryManager, logger)
+    ILogger<MovieCleaner> logger)
+    : BaseItemCleaner(libraryManager, logger)
 {
 
     public override double Weight => CleanupWeights.Movies;
