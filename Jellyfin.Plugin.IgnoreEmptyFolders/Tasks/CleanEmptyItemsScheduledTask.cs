@@ -4,24 +4,24 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tasks;
 
-public class CleanEmptySeriesScheduledTask : IScheduledTask
+public class CleanEmptyItemsScheduledTask : IScheduledTask
 {
     private readonly ILibraryManager _libraryManager;
-    private readonly ILogger<CleanEmptySeriesScheduledTask> _logger;
+    private readonly ILogger<CleanEmptyItemsScheduledTask> _logger;
 
-    public CleanEmptySeriesScheduledTask(
+    public CleanEmptyItemsScheduledTask(
         ILibraryManager libraryManager,
-        ILogger<CleanEmptySeriesScheduledTask> logger)
+        ILogger<CleanEmptyItemsScheduledTask> logger)
     {
         _libraryManager = libraryManager;
         _logger = logger;
     }
 
-    public string Name => "Clean Empty Series";
+    public string Name => "Clean Empty Items";
 
-    public string Key => "IgnoreEmptyFoldersCleanEmptySeries";
+    public string Key => "IgnoreEmptyFoldersCleanEmptyItems";
 
-    public string Description => "Removes TV shows that have no video files from the library.";
+    public string Description => "Removes TV shows, seasons and movies that have no video files from the library.";
 
     public string Category => "Library";
 
@@ -29,8 +29,8 @@ public class CleanEmptySeriesScheduledTask : IScheduledTask
     {
         return Task.Run(() =>
         {
-            var cleaner = new EmptySeriesCleaner(_libraryManager, _logger);
-            cleaner.CleanEmptySeries(progress, cancellationToken);
+            var cleaner = new EmptyItemCleaner(_libraryManager, _logger);
+            cleaner.CleanLibrary(progress, cancellationToken);
         }, cancellationToken);
     }
 
