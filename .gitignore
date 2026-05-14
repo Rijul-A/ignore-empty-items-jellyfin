@@ -2,7 +2,8 @@
 [Oo]bj/
 publish/
 .vs/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 *.user
 *.suo
 *.userosscache
