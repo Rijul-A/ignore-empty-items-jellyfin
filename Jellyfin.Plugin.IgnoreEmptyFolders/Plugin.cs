@@ -8,7 +8,10 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders;
 
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    public static Plugin? Instance { get; private set; }
+    public static Plugin? Instance
+    {
+        get; private set;
+    }
 
     public Plugin(
         IApplicationPaths applicationPaths,

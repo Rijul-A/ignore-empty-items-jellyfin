@@ -46,7 +46,8 @@ public class SeriesCleaner(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (seriesList[i] is not Series series) continue;
+            if (seriesList[i] is not Series series)
+                continue;
 
             var seriesKey = series.GetPresentationUniqueKey();
 

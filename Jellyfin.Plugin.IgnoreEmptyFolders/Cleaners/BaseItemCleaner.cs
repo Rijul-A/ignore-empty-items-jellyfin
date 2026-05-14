@@ -14,7 +14,10 @@ public abstract class BaseItemCleaner(
     protected readonly ILibraryManager LibraryManager = libraryManager;
     protected readonly ILogger Logger = logger;
 
-    public abstract double Weight { get; }
+    public abstract double Weight
+    {
+        get;
+    }
 
     public abstract bool IsEnabled(PluginConfiguration config);
 
@@ -28,7 +31,8 @@ public abstract class BaseItemCleaner(
         int current,
         int total)
     {
-        if (progress == null || total == 0) return;
+        if (progress == null || total == 0)
+            return;
         var internalProgress = (double)current / total * 100.0;
         progress.Report(internalProgress);
     }

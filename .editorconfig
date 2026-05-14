@@ -49,3 +49,23 @@ csharp_style_prefer_collection_expression = true:warning
 dotnet_diagnostic.IDE0005.severity = warning # Remove unused usings
 dotnet_diagnostic.IDE0290.severity = warning # Use primary constructor
 dotnet_diagnostic.IDE0300.severity = warning # Use collection expression
+
+#### C# Formatting Rules ####
+
+# New line preferences
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_between_query_expression_clauses = true
+
+# Indentation preferences
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_indent_method_declaration_parameter_list = true
+csharp_indent_method_call_parameter_list = true
+
+# Wrapping preferences
+csharp_preserve_single_line_blocks = false
+csharp_preserve_single_line_statements = false

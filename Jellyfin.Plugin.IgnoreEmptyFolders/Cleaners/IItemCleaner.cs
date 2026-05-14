@@ -10,7 +10,10 @@ public interface IItemCleaner
     /// <summary>
     /// Gets the weight of this cleaner for progress reporting.
     /// </summary>
-    double Weight { get; }
+    double Weight
+    {
+        get;
+    }
 
     /// <summary>
     /// Determines if the cleaner is enabled based on configuration.

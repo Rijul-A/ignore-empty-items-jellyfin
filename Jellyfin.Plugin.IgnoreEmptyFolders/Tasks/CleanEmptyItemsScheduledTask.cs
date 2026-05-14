@@ -26,7 +26,8 @@ public class CleanEmptyItemsScheduledTask(
         return Task.Run(() =>
         {
             var cleaner = new LibraryCleanupManager(
-                libraryManager, logger);
+                libraryManager, logger
+            );
             cleaner.CleanLibrary(progress, cancellationToken);
         }, cancellationToken);
     }
