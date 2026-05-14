@@ -59,6 +59,7 @@ csharp_new_line_before_catch = true
 csharp_new_line_before_finally = true
 csharp_new_line_before_members_in_object_initializers = true
 csharp_new_line_between_query_expression_clauses = true
+csharp_style_allow_blank_lines_at_start_of_code_block = false
 
 # Indentation preferences
 csharp_indent_case_contents = true
