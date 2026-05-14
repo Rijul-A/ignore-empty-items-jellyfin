@@ -18,7 +18,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override string Name => "Ignore Empty Folders";
 
-    public override string Description => "Automatically removes TV shows, seasons, movies, music artists and albums that have no media files from the library.";
+    public override string Description => "Automatically removes TV shows, seasons, movies, music artists, albums, collections, folders and playlists that have no media files from the library.";
 
     public override Guid Id => Guid.Parse("b3e4f5a6-7890-4abc-def0-123456789abc");
 

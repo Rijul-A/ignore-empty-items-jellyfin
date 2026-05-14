@@ -19,6 +19,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Delete music albums that have no audio files.</summary>
     public bool DeleteEmptyMusicAlbums { get; set; } = true;
 
+    /// <summary>Delete collections (boxsets) that are empty.</summary>
+    public bool DeleteEmptyCollections { get; set; } = true;
+
+    /// <summary>Delete folders that have no media files.</summary>
+    public bool DeleteEmptyFolders { get; set; } = true;
+
+    /// <summary>Delete playlists that are empty.</summary>
+    public bool DeleteEmptyPlaylists { get; set; } = true;
+
     /// <summary>Log when items are deleted.</summary>
     public bool LogDeletions { get; set; } = true;
 }

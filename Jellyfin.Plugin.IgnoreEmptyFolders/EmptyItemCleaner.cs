@@ -27,9 +27,12 @@ public class EmptyItemCleaner
         var deleteEmptyMovies = config?.DeleteEmptyMovies ?? true;
         var deleteEmptyMusicArtists = config?.DeleteEmptyMusicArtists ?? true;
         var deleteEmptyMusicAlbums = config?.DeleteEmptyMusicAlbums ?? true;
+        var deleteEmptyCollections = config?.DeleteEmptyCollections ?? true;
+        var deleteEmptyFolders = config?.DeleteEmptyFolders ?? true;
+        var deleteEmptyPlaylists = config?.DeleteEmptyPlaylists ?? true;
         var logDeletions = config?.LogDeletions ?? true;
 
-        if (!deleteEmptyShows && !deleteEmptySeasons && !deleteEmptyMovies && !deleteEmptyMusicArtists && !deleteEmptyMusicAlbums)
+        if (!deleteEmptyShows && !deleteEmptySeasons && !deleteEmptyMovies && !deleteEmptyMusicArtists && !deleteEmptyMusicAlbums && !deleteEmptyCollections && !deleteEmptyFolders && !deleteEmptyPlaylists)
         {
             _logger.LogInformation("Ignore Empty Folders: All options are disabled, skipping");
             return 0;
@@ -37,7 +40,7 @@ public class EmptyItemCleaner
 
         var removedCount = 0;
 
-        // Progress split: 40% Series/Seasons, 30% Movies, 30% Music
+        // Progress split: 30% Series/Seasons, 20% Movies, 20% Music, 30% Containers (Collections/Folders/Playlists)
         if (deleteEmptyShows || deleteEmptySeasons)
         {
             removedCount += CleanSeriesAndSeasons(deleteEmptyShows, deleteEmptySeasons, logDeletions, progress, cancellationToken);
@@ -51,6 +54,11 @@ public class EmptyItemCleaner
         if (deleteEmptyMusicArtists || deleteEmptyMusicAlbums)
         {
             removedCount += CleanMusic(deleteEmptyMusicArtists, deleteEmptyMusicAlbums, logDeletions, progress, cancellationToken);
+        }
+
+        if (deleteEmptyCollections || deleteEmptyFolders || deleteEmptyPlaylists)
+        {
+            removedCount += CleanContainers(deleteEmptyCollections, deleteEmptyFolders, deleteEmptyPlaylists, logDeletions, progress, cancellationToken);
         }
 
         _logger.LogInformation("Ignore Empty Folders: Total removed {Count} empty items", removedCount);
@@ -105,7 +113,7 @@ public class EmptyItemCleaner
                     {
                         _libraryManager.DeleteItem(series, new DeleteOptions { DeleteFileLocation = false });
                         removedCount++;
-                        progress?.Report((double)(i + 1) / total * 40);
+                        progress?.Report((double)(i + 1) / total * 30);
                         continue;
                     }
                     catch (Exception ex)
@@ -166,7 +174,7 @@ public class EmptyItemCleaner
                 }
             }
 
-            progress?.Report((double)(i + 1) / total * 40);
+            progress?.Report((double)(i + 1) / total * 30);
         }
 
         return removedCount;
@@ -216,7 +224,7 @@ public class EmptyItemCleaner
                 _logger.LogWarning(ex, "Ignore Empty Folders: Failed to remove movie \"{MovieName}\"", movie.Name);
             }
 
-            progress?.Report(40 + (double)(i + 1) / total * 30);
+            progress?.Report(30 + (double)(i + 1) / total * 20);
         }
 
         return removedCount;
@@ -314,7 +322,66 @@ public class EmptyItemCleaner
             }
         }
 
-        progress?.Report(100);
+        progress?.Report(70);
+        return removedCount;
+    }
+
+    private int CleanContainers(bool deleteEmptyCollections, bool deleteEmptyFolders, bool deleteEmptyPlaylists, bool logDeletions, IProgress<double>? progress, CancellationToken cancellationToken)
+    {
+        var removedCount = 0;
+        var types = new List<string>();
+        if (deleteEmptyCollections) types.Add(BaseItemKind.BoxSet);
+        if (deleteEmptyFolders) types.Add(BaseItemKind.Folder);
+        if (deleteEmptyPlaylists) types.Add(BaseItemKind.Playlist);
+
+        var containers = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = types.ToArray(),
+            DtoOptions = new DtoOptions(false) { EnableImages = false }
+        });
+
+        _logger.LogInformation("Ignore Empty Folders: Checking {Count} containers", containers.Count);
+
+        var total = containers.Count;
+        for (var i = 0; i < total; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var container = containers[i];
+
+            // For collections and playlists, any item is a child
+            // For folders, we only care about media files
+            var childCount = _libraryManager.GetCount(new InternalItemsQuery
+            {
+                ParentId = container.Id,
+                Recursive = true,
+                IsVirtualItem = false,
+                IsMissing = false,
+                Limit = 0,
+                DtoOptions = new DtoOptions(false) { EnableImages = false }
+            });
+
+            if (childCount == 0)
+            {
+                if (logDeletions)
+                {
+                    _logger.LogInformation("Ignore Empty Folders: Removing {Type} \"{Name}\" - empty", container.GetType().Name, container.Name);
+                }
+
+                try
+                {
+                    _libraryManager.DeleteItem(container, new DeleteOptions { DeleteFileLocation = false });
+                    removedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Ignore Empty Folders: Failed to remove {Type} \"{Name}\"", container.GetType().Name, container.Name);
+                }
+            }
+
+            progress?.Report(70 + (double)(i + 1) / total * 30);
+        }
+
         return removedCount;
     }
 }
