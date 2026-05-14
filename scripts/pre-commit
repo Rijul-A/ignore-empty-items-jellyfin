@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Pre-commit hook to enforce 72 character line limit on source files
+
+FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cs|js)$')
+
+if [ -z "$FILES" ]; then
+    exit 0
+fi
+
+FAILED=0
+for FILE in $FILES; do
+    # Skip generated files
+    if [[ $FILE == *"obj/"* ]] || [[ $FILE == *"bin/"* ]]; then
+        continue
+    fi
+
+    LONG_LINES=$(awk 'length > 72 {print FNR}' "$FILE")
+
+    if [ -n "$LONG_LINES" ]; then
+        echo "Error: $FILE has lines exceeding 72 characters at lines:"
+        echo "$LONG_LINES" | xargs echo
+        FAILED=1
+    fi
+done
+
+if [ $FAILED -eq 1 ]; then
+    echo "Please wrap your lines to 72 characters or less."
+    exit 1
+fi
+
+exit 0

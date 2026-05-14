@@ -10,7 +10,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     public static Plugin? Instance { get; private set; }
 
-    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+    public Plugin(
+        IApplicationPaths applicationPaths,
+        IXmlSerializer xmlSerializer)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
@@ -18,9 +20,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override string Name => "Ignore Empty Folders";
 
-    public override string Description => "Automatically removes TV shows, seasons, movies, music artists, albums, collections, folders and playlists that have no media files from the library.";
+    public override string Description =>
+        "Automatically removes TV shows, seasons, movies, " +
+        "music artists, albums, collections, folders and " +
+        "playlists that have no media files from the library.";
 
-    public override Guid Id => Guid.Parse("b3e4f5a6-7890-4abc-def0-123456789abc");
+    public override Guid Id =>
+        Guid.Parse("b3e4f5a6-7890-4abc-def0-123456789abc");
 
     public IEnumerable<PluginPageInfo> GetPages()
     {
@@ -29,7 +35,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = Name,
-                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
+                EmbeddedResourcePath =
+                    $"{GetType().Namespace}.Configuration." +
+                    "configPage.html",
             }
         };
     }

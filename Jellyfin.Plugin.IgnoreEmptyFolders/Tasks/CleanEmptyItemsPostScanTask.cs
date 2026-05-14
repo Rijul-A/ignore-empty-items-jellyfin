@@ -16,11 +16,15 @@ public class CleanEmptyItemsPostScanTask : ILibraryPostScanTask
         _logger = logger;
     }
 
-    public Task Run(IProgress<double> progress, CancellationToken cancellationToken)
+    public Task Run(
+        IProgress<double> progress,
+        CancellationToken cancellationToken)
     {
         return Task.Run(() =>
         {
-            var cleaner = new EmptyItemCleaner(_libraryManager, _logger);
+            var cleaner = new EmptyItemCleaner(
+                _libraryManager,
+                _logger);
             cleaner.CleanLibrary(progress, cancellationToken);
         }, cancellationToken);
     }

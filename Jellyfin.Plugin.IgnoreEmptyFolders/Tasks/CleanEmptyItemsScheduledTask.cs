@@ -21,15 +21,22 @@ public class CleanEmptyItemsScheduledTask : IScheduledTask
 
     public string Key => "IgnoreEmptyFoldersCleanEmptyItems";
 
-    public string Description => "Removes TV shows, seasons and movies that have no video files from the library.";
+    public string Description =>
+        "Removes TV shows, seasons, movies, music artists, " +
+        "albums, collections, folders and playlists that " +
+        "have no media files from the library.";
 
     public string Category => "Library";
 
-    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    public Task ExecuteAsync(
+        IProgress<double> progress,
+        CancellationToken cancellationToken)
     {
         return Task.Run(() =>
         {
-            var cleaner = new EmptyItemCleaner(_libraryManager, _logger);
+            var cleaner = new EmptyItemCleaner(
+                _libraryManager,
+                _logger);
             cleaner.CleanLibrary(progress, cancellationToken);
         }, cancellationToken);
     }
