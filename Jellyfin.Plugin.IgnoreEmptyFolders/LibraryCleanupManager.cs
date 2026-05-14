@@ -7,24 +7,17 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders;
 /// <summary>
 /// Orchestrator for managing library cleanup tasks.
 /// </summary>
-public class LibraryCleanupManager
+public class LibraryCleanupManager(
+    ILibraryManager libraryManager,
+    ILogger logger)
 {
-    private readonly ILogger _logger;
-    private readonly List<IItemCleaner> _cleaners;
-
-    public LibraryCleanupManager(
-        ILibraryManager libraryManager,
-        ILogger logger)
-    {
-        _logger = logger;
-        _cleaners = new List<IItemCleaner>
-        {
-            new SeriesCleaner(libraryManager, logger),
-            new MovieCleaner(libraryManager, logger),
-            new MusicCleaner(libraryManager, logger),
-            new ContainerCleaner(libraryManager, logger)
-        };
-    }
+    private readonly List<IItemCleaner> _cleaners =
+    [
+        new SeriesCleaner(libraryManager, logger),
+        new MovieCleaner(libraryManager, logger),
+        new MusicCleaner(libraryManager, logger),
+        new ContainerCleaner(libraryManager, logger)
+    ];
 
     /// <summary>
     /// Executes all enabled cleanup tasks.
@@ -45,7 +38,7 @@ public class LibraryCleanupManager
 
         if (enabledCleaners.Count == 0)
         {
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Ignore Empty Folders: No cleanup tasks enabled.");
             progress.Report(100);
             return;
@@ -62,10 +55,12 @@ public class LibraryCleanupManager
             var cleanerWeight = cleaner.Weight;
             var start = currentStart;
 
+            // Map relative cleaner progress (0-100) to global progress
             var relativeProgress = new Progress<double>(p =>
             {
-                var globalProgress = start +
-                    (p / 100.0 * cleanerWeight);
+                var globalProgress =
+                    start + (p / 100.0 * cleanerWeight);
+                // Normalize if totalWeight != 100
                 progress.Report(globalProgress * 100.0 / totalWeight);
             });
 
@@ -77,7 +72,7 @@ public class LibraryCleanupManager
             currentStart += cleanerWeight;
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Ignore Empty Folders: Total removed {Count} empty items",
             removedCount);
 

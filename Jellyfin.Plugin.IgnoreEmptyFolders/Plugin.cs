@@ -30,8 +30,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public IEnumerable<PluginPageInfo> GetPages()
     {
-        return new[]
-        {
+        return
+        [
             new PluginPageInfo
             {
                 Name = Name,
@@ -39,6 +39,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     $"{GetType().Namespace}.Configuration." +
                     "configPage.html",
             }
-        };
+        ];
     }
 }

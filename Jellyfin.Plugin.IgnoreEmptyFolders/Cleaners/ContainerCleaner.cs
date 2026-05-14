@@ -3,20 +3,14 @@ using Jellyfin.Plugin.IgnoreEmptyFolders.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
-public class ContainerCleaner : BaseItemCleaner
+public class ContainerCleaner(
+    ILibraryManager libraryManager,
+    ILogger logger) : BaseItemCleaner(libraryManager, logger)
 {
-    public ContainerCleaner(
-        ILibraryManager libraryManager,
-        ILogger logger)
-        : base(libraryManager, logger)
-    {
-    }
 
     public override double Weight => CleanupWeights.Containers;
 
@@ -52,7 +46,7 @@ public class ContainerCleaner : BaseItemCleaner
         var containers = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
-                IncludeItemTypes = types.ToArray(),
+                IncludeItemTypes = [.. types],
                 DtoOptions = new DtoOptions(false)
             });
 

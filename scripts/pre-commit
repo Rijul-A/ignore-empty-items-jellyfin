@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Pre-commit hook to enforce 72 character line limit on source files
+# Pre-commit hook to enforce code style and 72 character line limit
 
 FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cs|js)$')
 
@@ -9,6 +9,8 @@ if [ -z "$FILES" ]; then
 fi
 
 FAILED=0
+
+# 1. Check for line length (72 characters)
 for FILE in $FILES; do
     # Skip generated files
     if [[ $FILE == *"obj/"* ]] || [[ $FILE == *"bin/"* ]]; then
@@ -24,8 +26,17 @@ for FILE in $FILES; do
     fi
 done
 
+# 2. Run dotnet format verification for C# files
+CS_FILES=$(echo "$FILES" | grep '\.cs$')
+if [ -n "$CS_FILES" ]; then
+    echo "Running dotnet format verification..."
+    if ! dotnet format ./Jellyfin.Plugin.IgnoreEmptyFolders --verify-no-changes; then
+        echo "Error: Code style violations found. Run 'dotnet format' to fix them."
+        FAILED=1
+    fi
+fi
+
 if [ $FAILED -eq 1 ]; then
-    echo "Please wrap your lines to 72 characters or less."
     exit 1
 fi
 

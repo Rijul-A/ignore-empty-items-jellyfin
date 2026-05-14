@@ -3,19 +3,10 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tasks;
 
-public class CleanEmptyItemsPostScanTask : ILibraryPostScanTask
+public class CleanEmptyItemsPostScanTask(
+    ILibraryManager libraryManager,
+    ILogger logger) : ILibraryPostScanTask
 {
-    private readonly ILibraryManager _libraryManager;
-    private readonly ILogger<CleanEmptyItemsPostScanTask> _logger;
-
-    public CleanEmptyItemsPostScanTask(
-        ILibraryManager libraryManager,
-        ILogger<CleanEmptyItemsPostScanTask> logger)
-    {
-        _libraryManager = libraryManager;
-        _logger = logger;
-    }
-
     public Task Run(
         IProgress<double> progress,
         CancellationToken cancellationToken)
@@ -23,8 +14,8 @@ public class CleanEmptyItemsPostScanTask : ILibraryPostScanTask
         return Task.Run(() =>
         {
             var cleaner = new LibraryCleanupManager(
-                _libraryManager,
-                _logger);
+                libraryManager,
+                logger);
             cleaner.CleanLibrary(progress, cancellationToken);
         }, cancellationToken);
     }

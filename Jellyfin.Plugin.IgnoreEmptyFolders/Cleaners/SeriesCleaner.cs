@@ -4,20 +4,14 @@ using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
-public class SeriesCleaner : BaseItemCleaner
+public class SeriesCleaner(
+    ILibraryManager libraryManager,
+    ILogger logger) : BaseItemCleaner(libraryManager, logger)
 {
-    public SeriesCleaner(
-        ILibraryManager libraryManager,
-        ILogger logger)
-        : base(libraryManager, logger)
-    {
-    }
 
     public override double Weight => CleanupWeights.Series;
 
@@ -34,7 +28,7 @@ public class SeriesCleaner : BaseItemCleaner
         var seriesList = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
-                IncludeItemTypes = new[] { BaseItemKind.Series },
+                IncludeItemTypes = [BaseItemKind.Series],
                 DtoOptions = new DtoOptions(false)
                 {
                     EnableImages = false
@@ -62,10 +56,7 @@ public class SeriesCleaner : BaseItemCleaner
                     new InternalItemsQuery
                     {
                         SeriesPresentationUniqueKey = seriesKey,
-                        IncludeItemTypes = new[]
-                        {
-                            BaseItemKind.Episode
-                        },
+                        IncludeItemTypes = [BaseItemKind.Episode],
                         IsVirtualItem = false,
                         IsMissing = false,
                         Limit = 0,
@@ -128,7 +119,7 @@ public class SeriesCleaner : BaseItemCleaner
                     SeriesPresentationUniqueKey =
                         series.GetPresentationUniqueKey(),
                     ParentId = season.Id,
-                    IncludeItemTypes = new[] { BaseItemKind.Episode },
+                    IncludeItemTypes = [BaseItemKind.Episode],
                     IsVirtualItem = false,
                     IsMissing = false,
                     Limit = 0,

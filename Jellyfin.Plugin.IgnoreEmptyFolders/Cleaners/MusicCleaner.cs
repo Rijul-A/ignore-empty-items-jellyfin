@@ -3,20 +3,14 @@ using Jellyfin.Plugin.IgnoreEmptyFolders.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
-public class MusicCleaner : BaseItemCleaner
+public class MusicCleaner(
+    ILibraryManager libraryManager,
+    ILogger logger) : BaseItemCleaner(libraryManager, logger)
 {
-    public MusicCleaner(
-        ILibraryManager libraryManager,
-        ILogger logger)
-        : base(libraryManager, logger)
-    {
-    }
 
     public override double Weight => CleanupWeights.Music;
 
@@ -55,7 +49,7 @@ public class MusicCleaner : BaseItemCleaner
         var artists = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
-                IncludeItemTypes = new[] { BaseItemKind.MusicArtist },
+                IncludeItemTypes = [BaseItemKind.MusicArtist],
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -71,10 +65,7 @@ public class MusicCleaner : BaseItemCleaner
                 new InternalItemsQuery
                 {
                     ParentId = artist.Id,
-                    IncludeItemTypes = new[]
-                    {
-                        BaseItemKind.MusicAlbum
-                    },
+                    IncludeItemTypes = [BaseItemKind.MusicAlbum],
                     DtoOptions = new DtoOptions(false)
                 });
 
@@ -120,7 +111,7 @@ public class MusicCleaner : BaseItemCleaner
         var albums = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
-                IncludeItemTypes = new[] { BaseItemKind.MusicAlbum },
+                IncludeItemTypes = [BaseItemKind.MusicAlbum],
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -136,7 +127,7 @@ public class MusicCleaner : BaseItemCleaner
                 new InternalItemsQuery
                 {
                     ParentId = album.Id,
-                    IncludeItemTypes = new[] { BaseItemKind.Audio },
+                    IncludeItemTypes = [BaseItemKind.Audio],
                     IsVirtualItem = false,
                     IsMissing = false,
                     Limit = 0,

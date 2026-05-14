@@ -1,6 +1,5 @@
 using Jellyfin.Plugin.IgnoreEmptyFolders.Configuration;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
@@ -8,18 +7,12 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 /// <summary>
 /// Base class for item cleaners providing common services.
 /// </summary>
-public abstract class BaseItemCleaner : IItemCleaner
+public abstract class BaseItemCleaner(
+    ILibraryManager libraryManager,
+    ILogger logger) : IItemCleaner
 {
-    protected readonly ILibraryManager LibraryManager;
-    protected readonly ILogger Logger;
-
-    protected BaseItemCleaner(
-        ILibraryManager libraryManager,
-        ILogger logger)
-    {
-        LibraryManager = libraryManager;
-        Logger = logger;
-    }
+    protected readonly ILibraryManager LibraryManager = libraryManager;
+    protected readonly ILogger Logger = logger;
 
     public abstract double Weight { get; }
 

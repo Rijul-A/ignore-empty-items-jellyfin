@@ -4,19 +4,10 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tasks;
 
-public class CleanEmptyItemsScheduledTask : IScheduledTask
+public class CleanEmptyItemsScheduledTask(
+    ILibraryManager libraryManager,
+    ILogger logger) : IScheduledTask
 {
-    private readonly ILibraryManager _libraryManager;
-    private readonly ILogger<CleanEmptyItemsScheduledTask> _logger;
-
-    public CleanEmptyItemsScheduledTask(
-        ILibraryManager libraryManager,
-        ILogger<CleanEmptyItemsScheduledTask> logger)
-    {
-        _libraryManager = libraryManager;
-        _logger = logger;
-    }
-
     public string Name => "Clean Empty Items";
 
     public string Key => "IgnoreEmptyFoldersCleanEmptyItems";
@@ -35,8 +26,7 @@ public class CleanEmptyItemsScheduledTask : IScheduledTask
         return Task.Run(() =>
         {
             var cleaner = new LibraryCleanupManager(
-                _libraryManager,
-                _logger);
+                libraryManager, logger);
             cleaner.CleanLibrary(progress, cancellationToken);
         }, cancellationToken);
     }

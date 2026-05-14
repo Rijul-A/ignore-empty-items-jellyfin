@@ -3,20 +3,14 @@ using Jellyfin.Plugin.IgnoreEmptyFolders.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
-public class MovieCleaner : BaseItemCleaner
+public class MovieCleaner(
+    ILibraryManager libraryManager,
+    ILogger logger) : BaseItemCleaner(libraryManager, logger)
 {
-    public MovieCleaner(
-        ILibraryManager libraryManager,
-        ILogger logger)
-        : base(libraryManager, logger)
-    {
-    }
 
     public override double Weight => CleanupWeights.Movies;
 
@@ -33,7 +27,7 @@ public class MovieCleaner : BaseItemCleaner
         var movies = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
-                IncludeItemTypes = new[] { BaseItemKind.Movie },
+                IncludeItemTypes = [BaseItemKind.Movie],
                 IsVirtualItem = true,
                 DtoOptions = new DtoOptions(false)
             });
@@ -41,7 +35,7 @@ public class MovieCleaner : BaseItemCleaner
         var missingMovies = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
-                IncludeItemTypes = new[] { BaseItemKind.Movie },
+                IncludeItemTypes = [BaseItemKind.Movie],
                 IsMissing = true,
                 DtoOptions = new DtoOptions(false)
             });
