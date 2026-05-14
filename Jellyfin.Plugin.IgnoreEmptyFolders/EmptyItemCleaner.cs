@@ -1,8 +1,13 @@
+using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
@@ -532,22 +537,61 @@ public class EmptyItemCleaner
             cancellationToken.ThrowIfCancellationRequested();
 
             var container = containers[i];
+            var isEmpty = false;
 
-            var childCount = _libraryManager.GetCount(
-                new InternalItemsQuery
+            var typeName = container.GetType().Name;
+            if (typeName == "BoxSet" || typeName == "Playlist")
+            {
+                if (container is Folder folder)
                 {
-                    ParentId = container.Id,
-                    Recursive = true,
-                    IsVirtualItem = false,
-                    IsMissing = false,
-                    Limit = 0,
-                    DtoOptions = new DtoOptions(false)
+                    var links = folder.LinkedChildren;
+                    if (links.Length == 0)
                     {
-                        EnableImages = false
+                        isEmpty = true;
                     }
-                });
+                    else
+                    {
+                        var itemIds = links
+                            .Where(l => l.ItemId.HasValue)
+                            .Select(l => l.ItemId!.Value)
+                            .ToArray();
 
-            if (childCount == 0)
+                        var mediaCount = _libraryManager.GetCount(
+                            new InternalItemsQuery
+                            {
+                                ItemIds = itemIds,
+                                IsVirtualItem = false,
+                                IsMissing = false,
+                                DtoOptions = new DtoOptions(false)
+                                {
+                                    EnableImages = false
+                                }
+                            });
+
+                        isEmpty = mediaCount == 0;
+                    }
+                }
+            }
+            else
+            {
+                // Regular folders
+                var childCount = _libraryManager.GetCount(
+                    new InternalItemsQuery
+                    {
+                        ParentId = container.Id,
+                        Recursive = true,
+                        IsVirtualItem = false,
+                        IsMissing = false,
+                        Limit = 0,
+                        DtoOptions = new DtoOptions(false)
+                        {
+                            EnableImages = false
+                        }
+                    });
+                isEmpty = childCount == 0;
+            }
+
+            if (isEmpty)
             {
                 if (logDeletions)
                 {
