@@ -1,16 +1,26 @@
 #!/bin/bash
 
-# Pre-commit hook to enforce code style and 72 character line limit
+# Pre-commit hook to enforce code style, 72 character line limit, and build-ability
 
+# 1. Verify build via Makefile
+if ! make build-check; then
+    echo "Error: Build check failed. The project is currently in a non-compilable state."
+    echo "Run 'make build' to see the full error list."
+    exit 1
+fi
+
+# Get the staged files for further checks
 FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cs|js)$')
 
 if [ -z "$FILES" ]; then
+    echo "No C# or JS files staged, skipping style checks."
     exit 0
 fi
 
 FAILED=0
 
-# 1. Check for line length (72 characters)
+# 2. Check for line length (72 characters)
+echo "Checking line lengths..."
 for FILE in $FILES; do
     # Skip generated files
     if [[ $FILE == *"obj/"* ]] || [[ $FILE == *"bin/"* ]]; then
@@ -26,7 +36,7 @@ for FILE in $FILES; do
     fi
 done
 
-# 2. Run dotnet format verification for C# files
+# 3. Run dotnet format verification for staged C# files
 CS_FILES=$(echo "$FILES" | grep '\.cs$')
 if [ -n "$CS_FILES" ]; then
     echo "Running dotnet format verification..."
@@ -40,4 +50,5 @@ if [ $FAILED -eq 1 ]; then
     exit 1
 fi
 
+echo "All checks passed!"
 exit 0
