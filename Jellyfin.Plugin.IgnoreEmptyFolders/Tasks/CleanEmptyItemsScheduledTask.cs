@@ -34,7 +34,7 @@ public class CleanEmptyItemsScheduledTask : IScheduledTask
     {
         return Task.Run(() =>
         {
-            var cleaner = new EmptyItemCleaner(
+            var cleaner = new LibraryCleanupManager(
                 _libraryManager,
                 _logger);
             cleaner.CleanLibrary(progress, cancellationToken);

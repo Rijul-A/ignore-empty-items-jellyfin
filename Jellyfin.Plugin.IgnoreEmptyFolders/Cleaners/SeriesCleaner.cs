@@ -1,0 +1,172 @@
+using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.IgnoreEmptyFolders.Configuration;
+using MediaBrowser.Controller.Dto;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Querying;
+using Microsoft.Extensions.Logging;
+
+namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
+
+public class SeriesCleaner : BaseItemCleaner
+{
+    public SeriesCleaner(
+        ILibraryManager libraryManager,
+        ILogger logger)
+        : base(libraryManager, logger)
+    {
+    }
+
+    public override double Weight => CleanupWeights.Series;
+
+    public override bool IsEnabled(PluginConfiguration config)
+    {
+        return config.DeleteEmptyShows || config.DeleteEmptySeasons;
+    }
+
+    public override int Clean(
+        PluginConfiguration config,
+        IProgress<double>? progress,
+        CancellationToken cancellationToken)
+    {
+        var seriesList = LibraryManager.GetItemList(
+            new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.Series },
+                DtoOptions = new DtoOptions(false)
+                {
+                    EnableImages = false
+                }
+            });
+
+        Logger.LogInformation(
+            "Ignore Empty Folders: Checking {Count} series",
+            seriesList.Count);
+
+        var removedCount = 0;
+        var total = seriesList.Count;
+
+        for (var i = 0; i < total; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (seriesList[i] is not Series series) continue;
+
+            var seriesKey = series.GetPresentationUniqueKey();
+
+            if (config.DeleteEmptyShows)
+            {
+                var episodeCount = LibraryManager.GetCount(
+                    new InternalItemsQuery
+                    {
+                        SeriesPresentationUniqueKey = seriesKey,
+                        IncludeItemTypes = new[]
+                        {
+                            BaseItemKind.Episode
+                        },
+                        IsVirtualItem = false,
+                        IsMissing = false,
+                        Limit = 0,
+                        DtoOptions = new DtoOptions(false)
+                    });
+
+                if (episodeCount == 0)
+                {
+                    if (config.LogDeletions)
+                    {
+                        Logger.LogInformation(
+                            "Ignore Empty Folders: Removing series " +
+                            "\"{Name}\" - no files",
+                            series.Name);
+                    }
+
+                    try
+                    {
+                        LibraryManager.DeleteItem(
+                            series,
+                            new DeleteOptions
+                            {
+                                DeleteFileLocation = false
+                            });
+                        removedCount++;
+                        continue;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(
+                            ex,
+                            "Ignore Empty Folders: Failed to remove " +
+                            "series \"{Name}\"",
+                            series.Name);
+                    }
+                }
+            }
+
+            if (config.DeleteEmptySeasons)
+            {
+                removedCount += CleanSeasons(series, config);
+            }
+
+            ReportProgress(progress, i + 1, total);
+        }
+
+        return removedCount;
+    }
+
+    private int CleanSeasons(Series series, PluginConfiguration config)
+    {
+        var removedCount = 0;
+        var seasons = series.GetSeasons(null, new DtoOptions(false));
+
+        foreach (var season in seasons)
+        {
+            var episodeCount = LibraryManager.GetCount(
+                new InternalItemsQuery
+                {
+                    SeriesPresentationUniqueKey =
+                        series.GetPresentationUniqueKey(),
+                    ParentId = season.Id,
+                    IncludeItemTypes = new[] { BaseItemKind.Episode },
+                    IsVirtualItem = false,
+                    IsMissing = false,
+                    Limit = 0,
+                    DtoOptions = new DtoOptions(false)
+                });
+
+            if (episodeCount == 0)
+            {
+                if (config.LogDeletions)
+                {
+                    Logger.LogInformation(
+                        "Ignore Empty Folders: Removing season " +
+                        "\"{Name}\" of series \"{SeriesName}\"",
+                        season.Name,
+                        series.Name);
+                }
+
+                try
+                {
+                    LibraryManager.DeleteItem(
+                        season,
+                        new DeleteOptions
+                        {
+                            DeleteFileLocation = false
+                        });
+                    removedCount++;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(
+                        ex,
+                        "Ignore Empty Folders: Failed to remove " +
+                        "season \"{Name}\"",
+                        season.Name);
+                }
+            }
+        }
+
+        return removedCount;
+    }
+}
