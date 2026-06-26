@@ -9,6 +9,7 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders;
 /// </summary>
 public class LibraryCleanupManager(
     ILibraryManager libraryManager,
+    IUserManager userManager,
     ILoggerFactory loggerFactory)
 {
     private readonly ILogger<LibraryCleanupManager> _logger =
@@ -41,6 +42,11 @@ public class LibraryCleanupManager(
         if (config == null)
         {
             return;
+        }
+
+        if (config.HideInsteadOfDelete)
+        {
+            EnsureUsersBlockTag(config.HideTag, cancellationToken);
         }
 
         var enabledCleaners = _cleaners
@@ -88,5 +94,45 @@ public class LibraryCleanupManager(
             removedCount);
 
         progress.Report(100);
+    }
+
+    private void EnsureUsersBlockTag(
+        string tag,
+        CancellationToken cancellationToken
+    )
+    {
+        var users = userManager.GetUsers().ToList();
+        _logger.LogInformation(
+            "Ignore Empty Folders: EnsureUsersBlockTag found " +
+            "{Count} users",
+            users.Count);
+
+        foreach (var user in users)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var dto = userManager.GetUserDto(user);
+            var policy = dto.Policy!;
+
+            _logger.LogInformation(
+                "Ignore Empty Folders: Checking user \"{User}\"",
+                user.Username);
+
+            if (policy.BlockedTags.Contains(
+                    tag,
+                    StringComparer.OrdinalIgnoreCase
+                ))
+                continue;
+
+            policy.BlockedTags = [.. policy.BlockedTags, tag];
+            userManager.UpdatePolicyAsync(user.Id, policy)
+                .GetAwaiter().GetResult();
+
+            _logger.LogInformation(
+                "Ignore Empty Folders: Added blocked tag \"{Tag}\" " +
+                "for user \"{User}\"",
+                tag,
+                user.Username);
+        }
     }
 }

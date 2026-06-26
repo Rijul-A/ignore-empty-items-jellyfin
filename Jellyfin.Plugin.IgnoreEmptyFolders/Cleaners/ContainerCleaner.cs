@@ -113,31 +113,47 @@ public class ContainerCleaner(
                 if (config.LogDeletions)
                 {
                     Logger.LogInformation(
-                        "Ignore Empty Folders: Removing " +
+                        "Ignore Empty Folders: Hiding/removing " +
                         "{Type} \"{Name}\"",
                         container.GetType().Name,
                         container.Name);
                 }
 
-                try
+                if (config.HideInsteadOfDelete)
                 {
-                    LibraryManager.DeleteItem(
+                    TagItem(
                         container,
-                        new DeleteOptions
-                        {
-                            DeleteFileLocation = false
-                        });
+                        config.HideTag,
+                        cancellationToken
+                    );
                     removedCount++;
                 }
-                catch (Exception ex)
+                else
                 {
-                    Logger.LogWarning(
-                        ex,
-                        "Ignore Empty Folders: Failed to remove " +
-                        "{Type} \"{Name}\"",
-                        container.GetType().Name,
-                        container.Name);
+                    try
+                    {
+                        LibraryManager.DeleteItem(
+                            container,
+                            new DeleteOptions
+                            {
+                                DeleteFileLocation = false
+                            });
+                        removedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(
+                            ex,
+                            "Ignore Empty Folders: Failed to remove " +
+                            "{Type} \"{Name}\"",
+                            container.GetType().Name,
+                            container.Name);
+                    }
                 }
+            }
+            else if (config.HideInsteadOfDelete)
+            {
+                UntagItem(container, config.HideTag, cancellationToken);
             }
 
             ReportProgress(progress, i + 1, total);

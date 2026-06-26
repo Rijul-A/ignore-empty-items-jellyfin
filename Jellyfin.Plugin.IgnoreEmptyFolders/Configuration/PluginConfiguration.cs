@@ -48,4 +48,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Log when items are deleted.
     /// </summary>
     public bool LogDeletions { get; set; } = true;
+
+    /// <summary>
+    /// Tag empty items instead of deleting them,
+    /// and block the tag for all non-admin users.
+    /// </summary>
+    public bool HideInsteadOfDelete { get; set; } = false;
+
+    /// <summary>
+    /// Tag applied to empty items when HideInsteadOfDelete is enabled.
+    /// </summary>
+    public string HideTag { get; set; } = "plugin-empty";
 }

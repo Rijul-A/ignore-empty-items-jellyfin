@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.IgnoreEmptyFolders.Configuration;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
@@ -35,5 +36,45 @@ public abstract class BaseItemCleaner(
             return;
         var internalProgress = (double)current / total * 100.0;
         progress.Report(internalProgress);
+    }
+
+    protected bool HasHideTag(BaseItem item, string tag) =>
+        item.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase);
+
+    protected void TagItem(
+        BaseItem item,
+        string tag,
+        CancellationToken ct
+    )
+    {
+        if (HasHideTag(item, tag))
+            return;
+        item.Tags = [.. item.Tags, tag];
+        LibraryManager.UpdateItemAsync(
+            item,
+            item.GetParent(),
+            ItemUpdateType.MetadataEdit,
+            ct
+        ).GetAwaiter().GetResult();
+    }
+
+    protected void UntagItem(
+        BaseItem item,
+        string tag,
+        CancellationToken ct
+    )
+    {
+        if (!HasHideTag(item, tag))
+            return;
+        item.Tags = item.Tags
+            .Where(t => !t.Equals(
+                tag, StringComparison.OrdinalIgnoreCase
+            )).ToArray();
+        LibraryManager.UpdateItemAsync(
+            item,
+            item.GetParent(),
+            ItemUpdateType.MetadataEdit,
+            ct
+        ).GetAwaiter().GetResult();
     }
 }

@@ -127,6 +127,28 @@
                             removed.
                         </div>
                     </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="HideInsteadOfDelete" />
+                            <span>Hide instead of delete</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Tag empty items and block the tag for all
+                            non-admin users instead of deleting them.
+                            Prevents repeated "item added" notifications.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="HideTag">
+                            Hide tag
+                        </label>
+                        <input type="text" is="emby-input" id="HideTag" />
+                        <div class="fieldDescription">
+                            Tag applied to empty items when
+                            "Hide instead of delete" is enabled.
+                        </div>
+                    </div>
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block
                             emby-button">
@@ -166,6 +188,10 @@
                                 .checked = config.DeleteEmptyPlaylists;
                             page.querySelector('#LogDeletions')
                                 .checked = config.LogDeletions;
+                            page.querySelector('#HideInsteadOfDelete')
+                                .checked = config.HideInsteadOfDelete;
+                            page.querySelector('#HideTag')
+                                .value = config.HideTag;
                             Dashboard.hideLoadingMsg();
                         });
                 });
@@ -199,6 +225,11 @@
                                     '#DeleteEmptyPlaylists').checked;
                             config.LogDeletions = page.querySelector(
                                 '#LogDeletions').checked;
+                            config.HideInsteadOfDelete =
+                                page.querySelector(
+                                    '#HideInsteadOfDelete').checked;
+                            config.HideTag = page.querySelector(
+                                '#HideTag').value;
                             ApiClient.updatePluginConfiguration(
                                 PluginConfig.pluginId, config).then(
                                     function () {

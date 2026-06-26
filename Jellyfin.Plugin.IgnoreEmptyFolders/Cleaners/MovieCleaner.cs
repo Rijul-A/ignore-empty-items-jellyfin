@@ -25,6 +25,27 @@ public class MovieCleaner(
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
+        if (config.HideInsteadOfDelete)
+        {
+            // movies that have the tag and are neither virtual
+            // nor missing should be untagged.
+            var taggedMovies = LibraryManager.GetItemList(
+                new InternalItemsQuery
+                {
+                    IncludeItemTypes = [BaseItemKind.Movie],
+                    Tags = [config.HideTag],
+                    IsVirtualItem = false,
+                    IsMissing = false,
+                    DtoOptions = new DtoOptions(false)
+                });
+
+            foreach (var movie in taggedMovies)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                UntagItem(movie, config.HideTag, cancellationToken);
+            }
+        }
+
         var movies = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
@@ -63,23 +84,32 @@ public class MovieCleaner(
                     movie.Name);
             }
 
-            try
+            if (config.HideInsteadOfDelete)
             {
-                LibraryManager.DeleteItem(
-                    movie,
-                    new DeleteOptions
-                    {
-                        DeleteFileLocation = false
-                    });
+                TagItem(movie, config.HideTag, cancellationToken);
                 removedCount++;
             }
-            catch (Exception ex)
+            else
             {
-                Logger.LogWarning(
-                    ex,
-                    "Ignore Empty Folders: Failed to remove " +
-                    "movie \"{Name}\"",
-                    movie.Name);
+                try
+                {
+                    LibraryManager.DeleteItem(
+                        movie,
+                        new DeleteOptions
+                        {
+                            DeleteFileLocation = false
+                        }
+                    );
+                    removedCount++;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(
+                        ex,
+                        "Ignore Empty Folders: Failed to remove " +
+                        "movie \"{Name}\"",
+                        movie.Name);
+                }
             }
 
             ReportProgress(progress, i + 1, total);

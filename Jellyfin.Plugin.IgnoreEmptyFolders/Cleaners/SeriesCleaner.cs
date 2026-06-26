@@ -69,9 +69,20 @@ public class SeriesCleaner(
                     if (config.LogDeletions)
                     {
                         Logger.LogInformation(
-                            "Ignore Empty Folders: Removing series " +
-                            "\"{Name}\" - no files",
+                            "Ignore Empty Folders: Hiding/removing " +
+                            "series \"{Name}\" - no files",
                             series.Name);
+                    }
+
+                    if (config.HideInsteadOfDelete)
+                    {
+                        TagItem(
+                            series,
+                            config.HideTag,
+                            cancellationToken
+                        );
+                        removedCount++;
+                        continue;
                     }
 
                     try
@@ -94,11 +105,23 @@ public class SeriesCleaner(
                             series.Name);
                     }
                 }
+                else if (config.HideInsteadOfDelete)
+                {
+                    UntagItem(
+                        series,
+                        config.HideTag,
+                        cancellationToken
+                    );
+                }
             }
 
             if (config.DeleteEmptySeasons)
             {
-                removedCount += CleanSeasons(series, config);
+                removedCount += CleanSeasons(
+                    series,
+                    config,
+                    cancellationToken
+                );
             }
 
             ReportProgress(progress, i + 1, total);
@@ -107,7 +130,10 @@ public class SeriesCleaner(
         return removedCount;
     }
 
-    private int CleanSeasons(Series series, PluginConfiguration config)
+    private int CleanSeasons(
+        Series series,
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
     {
         var removedCount = 0;
         var seasons = series.GetSeasons(null, new DtoOptions(false));
@@ -137,10 +163,17 @@ public class SeriesCleaner(
                 if (config.LogDeletions)
                 {
                     Logger.LogInformation(
-                        "Ignore Empty Folders: Removing season " +
-                        "\"{Name}\" of series \"{SeriesName}\"",
+                        "Ignore Empty Folders: Hiding/removing " +
+                        "season \"{Name}\" of series \"{SeriesName}\"",
                         season.Name,
                         series.Name);
+                }
+
+                if (config.HideInsteadOfDelete)
+                {
+                    TagItem(season, config.HideTag, cancellationToken);
+                    removedCount++;
+                    continue;
                 }
 
                 try
@@ -161,6 +194,10 @@ public class SeriesCleaner(
                         "season \"{Name}\"",
                         season.Name);
                 }
+            }
+            else if (config.HideInsteadOfDelete)
+            {
+                UntagItem(season, config.HideTag, cancellationToken);
             }
         }
 

@@ -6,6 +6,7 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tasks;
 
 public class CleanEmptyItemsScheduledTask(
     ILibraryManager libraryManager,
+    IUserManager userManager,
     ILoggerFactory loggerFactory) : IScheduledTask
 {
     public string Name => "Clean Empty Items";
@@ -26,7 +27,7 @@ public class CleanEmptyItemsScheduledTask(
         return Task.Run(() =>
         {
             var cleaner = new LibraryCleanupManager(
-                libraryManager, loggerFactory
+                libraryManager, userManager, loggerFactory
             );
             cleaner.CleanLibrary(progress, cancellationToken);
         }, cancellationToken);

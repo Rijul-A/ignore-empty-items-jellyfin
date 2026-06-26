@@ -83,29 +83,41 @@ public class MusicCleaner(
                 if (config.LogDeletions)
                 {
                     Logger.LogInformation(
-                        "Ignore Empty Folders: Removing artist " +
-                        "\"{Name}\"",
-                        artist.Name);
-                }
-
-                try
-                {
-                    LibraryManager.DeleteItem(
-                        artist,
-                        new DeleteOptions
-                        {
-                            DeleteFileLocation = false
-                        });
-                    removedCount++;
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(
-                        ex,
-                        "Ignore Empty Folders: Failed to remove " +
+                        "Ignore Empty Folders: Hiding/removing " +
                         "artist \"{Name}\"",
                         artist.Name);
                 }
+
+                if (config.HideInsteadOfDelete)
+                {
+                    TagItem(artist, config.HideTag, cancellationToken);
+                    removedCount++;
+                }
+                else
+                {
+                    try
+                    {
+                        LibraryManager.DeleteItem(
+                            artist,
+                            new DeleteOptions
+                            {
+                                DeleteFileLocation = false
+                            });
+                        removedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(
+                            ex,
+                            "Ignore Empty Folders: Failed to remove " +
+                            "artist \"{Name}\"",
+                            artist.Name);
+                    }
+                }
+            }
+            else if (config.HideInsteadOfDelete)
+            {
+                UntagItem(artist, config.HideTag, cancellationToken);
             }
 
             ReportProgress(progress, ++processed, total);
@@ -153,29 +165,41 @@ public class MusicCleaner(
                 if (config.LogDeletions)
                 {
                     Logger.LogInformation(
-                        "Ignore Empty Folders: Removing album " +
+                        "Ignore Empty Folders: Hiding/removing album " +
                         "\"{Name}\"",
                         album.Name);
                 }
 
-                try
+                if (config.HideInsteadOfDelete)
                 {
-                    LibraryManager.DeleteItem(
-                        album,
-                        new DeleteOptions
-                        {
-                            DeleteFileLocation = false
-                        });
+                    TagItem(album, config.HideTag, cancellationToken);
                     removedCount++;
                 }
-                catch (Exception ex)
+                else
                 {
-                    Logger.LogWarning(
-                        ex,
-                        "Ignore Empty Folders: Failed to remove " +
-                        "album \"{Name}\"",
-                        album.Name);
+                    try
+                    {
+                        LibraryManager.DeleteItem(
+                            album,
+                            new DeleteOptions
+                            {
+                                DeleteFileLocation = false
+                            });
+                        removedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(
+                            ex,
+                            "Ignore Empty Folders: Failed to remove " +
+                            "album \"{Name}\"",
+                            album.Name);
+                    }
                 }
+            }
+            else if (config.HideInsteadOfDelete)
+            {
+                UntagItem(album, config.HideTag, cancellationToken);
             }
 
             ReportProgress(progress, ++processed, total);
