@@ -59,4 +59,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Tag applied to empty items when HideInsteadOfDelete is enabled.
     /// </summary>
     public string HideTag { get; set; } = "plugin-empty";
+
+    /// <summary>
+    /// The previously used hide tag, used to clean up 
+    /// if the tag is renamed.
+    /// </summary>
+    public string PreviousHideTag { get; set; } = string.Empty;
 }

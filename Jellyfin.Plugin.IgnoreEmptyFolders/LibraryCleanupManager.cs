@@ -1,4 +1,6 @@
 using Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
+using MediaBrowser.Controller.Dto;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
@@ -32,6 +34,43 @@ public class LibraryCleanupManager(
     ];
 
     /// <summary>
+    /// Handles tag migration and user enrollment
+    /// when configuration changes.
+    /// </summary>
+    public void HandleConfigurationChanged(
+        CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config == null || !config.HideInsteadOfDelete)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(config.PreviousHideTag) &&
+            !config.PreviousHideTag.Equals(
+                config.HideTag,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            MigrateTag(
+                config.PreviousHideTag,
+                config.HideTag,
+                cancellationToken);
+        }
+
+        if (!config.HideTag.Equals(
+                config.PreviousHideTag,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            config.PreviousHideTag = config.HideTag;
+            // HandleConfigurationChanged is not called via this
+            // only via UpdateConfiguration
+            Plugin.Instance?.SaveConfiguration(config);
+        }
+
+        EnsureUsersBlockTag(config.HideTag, cancellationToken);
+    }
+
+    /// <summary>
     /// Executes all enabled cleanup tasks.
     /// </summary>
     public void CleanLibrary(
@@ -44,10 +83,7 @@ public class LibraryCleanupManager(
             return;
         }
 
-        if (config.HideInsteadOfDelete)
-        {
-            EnsureUsersBlockTag(config.HideTag, cancellationToken);
-        }
+        HandleConfigurationChanged(cancellationToken);
 
         var enabledCleaners = _cleaners
             .Where(c => c.IsEnabled(config))
@@ -96,10 +132,70 @@ public class LibraryCleanupManager(
         progress.Report(100);
     }
 
+    private void MigrateTag(
+        string oldTag,
+        string newTag,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "Ignore Empty Folders: Migrating hide tag " +
+            "from \"{OldTag}\" to \"{NewTag}\"",
+            oldTag,
+            newTag);
+
+        var taggedItems = libraryManager.GetItemList(
+            new InternalItemsQuery
+            {
+                Tags = [oldTag],
+                DtoOptions = new DtoOptions(false)
+            });
+
+        foreach (var item in taggedItems)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            item.Tags = [.. item.Tags
+                .Where(t => !t.Equals(
+                    oldTag, StringComparison.OrdinalIgnoreCase))];
+            libraryManager.UpdateItemAsync(
+                item,
+                item.GetParent(),
+                ItemUpdateType.MetadataEdit,
+                cancellationToken)
+                .GetAwaiter().GetResult();
+        }
+
+        _logger.LogInformation(
+            "Ignore Empty Folders: Removed old tag from {Count} items",
+            taggedItems.Count);
+
+        foreach (var user in userManager.GetUsers())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var dto = userManager.GetUserDto(user);
+            var policy = dto.Policy!;
+
+            if (!policy.BlockedTags.Contains(
+                    oldTag, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            policy.BlockedTags = [.. policy.BlockedTags
+                .Where(t => !t.Equals(
+                    oldTag, StringComparison.OrdinalIgnoreCase))];
+            userManager.UpdatePolicyAsync(user.Id, policy)
+                .GetAwaiter().GetResult();
+
+            _logger.LogInformation(
+                "Ignore Empty Folders: Removed old tag \"{OldTag}\" " +
+                "from user \"{User}\"",
+                oldTag,
+                user.Username);
+        }
+    }
+
     private void EnsureUsersBlockTag(
         string tag,
-        CancellationToken cancellationToken
-    )
+        CancellationToken cancellationToken)
     {
         var users = userManager.GetUsers().ToList();
         _logger.LogInformation(
@@ -120,8 +216,7 @@ public class LibraryCleanupManager(
 
             if (policy.BlockedTags.Contains(
                     tag,
-                    StringComparer.OrdinalIgnoreCase
-                ))
+                    StringComparer.OrdinalIgnoreCase))
                 continue;
 
             policy.BlockedTags = [.. policy.BlockedTags, tag];

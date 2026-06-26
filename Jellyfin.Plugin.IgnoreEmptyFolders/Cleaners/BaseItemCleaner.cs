@@ -66,10 +66,9 @@ public abstract class BaseItemCleaner(
     {
         if (!HasHideTag(item, tag))
             return;
-        item.Tags = item.Tags
+        item.Tags = [.. item.Tags
             .Where(t => !t.Equals(
-                tag, StringComparison.OrdinalIgnoreCase
-            )).ToArray();
+                tag, StringComparison.OrdinalIgnoreCase))];
         LibraryManager.UpdateItemAsync(
             item,
             item.GetParent(),
