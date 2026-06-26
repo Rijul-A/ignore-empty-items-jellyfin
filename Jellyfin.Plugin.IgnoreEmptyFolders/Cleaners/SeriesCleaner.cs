@@ -4,6 +4,7 @@ using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
@@ -49,14 +50,13 @@ public class SeriesCleaner(
             if (seriesList[i] is not Series series)
                 continue;
 
-            var seriesKey = series.GetPresentationUniqueKey();
-
             if (config.DeleteEmptyShows)
             {
                 var episodeCount = LibraryManager.GetCount(
                     new InternalItemsQuery
                     {
-                        SeriesPresentationUniqueKey = seriesKey,
+                        ParentId = series.Id,
+                        Recursive = true,
                         IncludeItemTypes = [BaseItemKind.Episode],
                         IsVirtualItem = false,
                         IsMissing = false,
@@ -114,11 +114,16 @@ public class SeriesCleaner(
 
         foreach (var season in seasons)
         {
+            if (season.LocationType != LocationType.FileSystem)
+            {
+                // only clean seasons which are on the file system
+                // skip others
+                continue;
+            }
+
             var episodeCount = LibraryManager.GetCount(
                 new InternalItemsQuery
                 {
-                    SeriesPresentationUniqueKey =
-                        series.GetPresentationUniqueKey(),
                     ParentId = season.Id,
                     IncludeItemTypes = [BaseItemKind.Episode],
                     IsVirtualItem = false,
