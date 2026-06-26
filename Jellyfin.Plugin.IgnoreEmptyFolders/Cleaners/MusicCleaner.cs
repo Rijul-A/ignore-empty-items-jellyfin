@@ -29,20 +29,24 @@ public class MusicCleaner(
 
         if (config.DeleteEmptyMusicArtists)
         {
-            removedCount += CleanArtists(config, cancellationToken);
+            removedCount += CleanArtists(
+                config, progress, cancellationToken
+            );
         }
 
         if (config.DeleteEmptyMusicAlbums)
         {
-            removedCount += CleanAlbums(config, cancellationToken);
+            removedCount += CleanAlbums(
+                config, progress, cancellationToken
+            );
         }
 
-        ReportProgress(progress, 1, 1);
         return removedCount;
     }
 
     private int CleanArtists(
         PluginConfiguration config,
+        IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
         var removedCount = 0;
@@ -57,6 +61,8 @@ public class MusicCleaner(
             "Ignore Empty Folders: Checking {Count} artists",
             artists.Count);
 
+        var total = artists.Count;
+        var processed = 0;
         foreach (var artist in artists)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -66,6 +72,9 @@ public class MusicCleaner(
                 {
                     ParentId = artist.Id,
                     IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                    IsVirtualItem = false,
+                    IsMissing = false,
+                    Limit = 0,
                     DtoOptions = new DtoOptions(false)
                 });
 
@@ -98,6 +107,8 @@ public class MusicCleaner(
                         artist.Name);
                 }
             }
+
+            ReportProgress(progress, ++processed, total);
         }
 
         return removedCount;
@@ -105,6 +116,7 @@ public class MusicCleaner(
 
     private int CleanAlbums(
         PluginConfiguration config,
+        IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
         var removedCount = 0;
@@ -119,6 +131,8 @@ public class MusicCleaner(
             "Ignore Empty Folders: Checking {Count} albums",
             albums.Count);
 
+        var total = albums.Count;
+        var processed = 0;
         foreach (var album in albums)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -163,6 +177,8 @@ public class MusicCleaner(
                         album.Name);
                 }
             }
+
+            ReportProgress(progress, ++processed, total);
         }
 
         return removedCount;
