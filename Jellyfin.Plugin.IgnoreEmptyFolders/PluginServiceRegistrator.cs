@@ -1,4 +1,6 @@
+using Jellyfin.Data.Events.Users;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,7 +12,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         IServiceCollection serviceCollection,
         IServerApplicationHost applicationHost)
     {
-        serviceCollection.
-            AddHostedService<PluginConfigurationWatcher>();
+        serviceCollection
+            .AddHostedService<
+            PluginConfigurationWatcher>();
+        serviceCollection
+            .AddScoped<
+                IEventConsumer<UserCreatedEventArgs>,
+                UserCreatedHandler>();
     }
 }
