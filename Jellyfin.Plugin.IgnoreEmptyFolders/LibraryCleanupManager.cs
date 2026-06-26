@@ -1,3 +1,4 @@
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
@@ -41,8 +42,34 @@ public class LibraryCleanupManager(
         CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
-        if (config == null || !config.HideInsteadOfDelete)
+        if (config == null)
         {
+            return;
+        }
+
+        if (config.HideInsteadOfDelete &&
+            string.IsNullOrWhiteSpace(config.HideTag))
+        {
+            _logger.LogWarning(
+                "Ignore Empty Folders: HideTag is empty, " +
+                "skipping hide mode processing");
+            return;
+        }
+
+        if (!config.HideInsteadOfDelete)
+        {
+            if (config.HideInsteadOfDeleteWasActive &&
+                !string.IsNullOrEmpty(config.PreviousHideTag))
+            {
+                MigrateTag(
+                    config.PreviousHideTag,
+                    string.Empty,
+                    cancellationToken);
+                config.PreviousHideTag = string.Empty;
+                config.HideInsteadOfDeleteWasActive = false;
+                Plugin.Instance?.SaveConfiguration(config);
+            }
+
             return;
         }
 
@@ -57,13 +84,24 @@ public class LibraryCleanupManager(
                 cancellationToken);
         }
 
+        var needsSave = false;
+
         if (!config.HideTag.Equals(
                 config.PreviousHideTag,
                 StringComparison.OrdinalIgnoreCase))
         {
             config.PreviousHideTag = config.HideTag;
-            // HandleConfigurationChanged is not called via this
-            // only via UpdateConfiguration
+            needsSave = true;
+        }
+
+        if (!config.HideInsteadOfDeleteWasActive)
+        {
+            config.HideInsteadOfDeleteWasActive = true;
+            needsSave = true;
+        }
+
+        if (needsSave)
+        {
             Plugin.Instance?.SaveConfiguration(config);
         }
 
@@ -137,11 +175,20 @@ public class LibraryCleanupManager(
         string newTag,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation(
-            "Ignore Empty Folders: Migrating hide tag " +
-            "from \"{OldTag}\" to \"{NewTag}\"",
-            oldTag,
-            newTag);
+        if (string.IsNullOrEmpty(newTag))
+        {
+            _logger.LogInformation(
+                "Ignore Empty Folders: Removing hide tag \"{OldTag}\"",
+                oldTag);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Ignore Empty Folders: Migrating hide tag " +
+                "from \"{OldTag}\" to \"{NewTag}\"",
+                oldTag,
+                newTag);
+        }
 
         var taggedItems = libraryManager.GetItemList(
             new InternalItemsQuery
@@ -153,9 +200,12 @@ public class LibraryCleanupManager(
         foreach (var item in taggedItems)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            item.Tags = [.. item.Tags
+            var tags = item.Tags
                 .Where(t => !t.Equals(
-                    oldTag, StringComparison.OrdinalIgnoreCase))];
+                    oldTag, StringComparison.OrdinalIgnoreCase));
+            item.Tags = string.IsNullOrEmpty(newTag)
+                ? [.. tags]
+                : [.. tags, newTag];
             libraryManager.UpdateItemAsync(
                 item,
                 item.GetParent(),
@@ -165,7 +215,8 @@ public class LibraryCleanupManager(
         }
 
         _logger.LogInformation(
-            "Ignore Empty Folders: Removed old tag from {Count} items",
+            "Ignore Empty Folders: Updated {Count} items " +
+            "during tag migration",
             taggedItems.Count);
 
         foreach (var user in userManager.GetUsers())
@@ -197,35 +248,52 @@ public class LibraryCleanupManager(
         string tag,
         CancellationToken cancellationToken)
     {
+        var config = Plugin.Instance?.Configuration;
         var users = userManager.GetUsers().ToList();
         _logger.LogInformation(
-            "Ignore Empty Folders: EnsureUsersBlockTag found " +
+            "Ignore Empty Folders: Syncing hide tag for " +
             "{Count} users",
             users.Count);
 
         foreach (var user in users)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            SyncUserTag(user, tag, config?.HideTagSkipAdmins ?? true);
+        }
+    }
 
-            var dto = userManager.GetUserDto(user);
-            var policy = dto.Policy!;
+    private void SyncUserTag(
+        User user,
+        string tag,
+        bool skipAdmins)
+    {
+        var dto = userManager.GetUserDto(user);
+        var policy = dto.Policy!;
+        var shouldHaveTag = !skipAdmins || !policy.IsAdministrator;
+        var hasTag = policy.BlockedTags.Contains(
+            tag, StringComparer.OrdinalIgnoreCase);
 
-            _logger.LogInformation(
-                "Ignore Empty Folders: Checking user \"{User}\"",
-                user.Username);
-
-            if (policy.BlockedTags.Contains(
-                    tag,
-                    StringComparer.OrdinalIgnoreCase))
-                continue;
-
+        if (shouldHaveTag && !hasTag)
+        {
             policy.BlockedTags = [.. policy.BlockedTags, tag];
             userManager.UpdatePolicyAsync(user.Id, policy)
                 .GetAwaiter().GetResult();
-
             _logger.LogInformation(
                 "Ignore Empty Folders: Added blocked tag \"{Tag}\" " +
                 "for user \"{User}\"",
+                tag,
+                user.Username);
+        }
+        else if (!shouldHaveTag && hasTag)
+        {
+            policy.BlockedTags = [.. policy.BlockedTags
+                .Where(t => !t.Equals(
+                    tag, StringComparison.OrdinalIgnoreCase))];
+            userManager.UpdatePolicyAsync(user.Id, policy)
+                .GetAwaiter().GetResult();
+            _logger.LogInformation(
+                "Ignore Empty Folders: Removed blocked tag \"{Tag}\" " +
+                "from user \"{User}\"",
                 tag,
                 user.Username);
         }

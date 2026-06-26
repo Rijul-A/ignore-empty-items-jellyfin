@@ -139,6 +139,17 @@
                             Prevents repeated "item added" notifications.
                         </div>
                     </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="HideTagSkipAdmins" />
+                            <span>Skip admins for hide tag</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Do not add the hide tag to admin users,
+                            allowing them to see hidden items.
+                        </div>
+                    </div>
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="HideTag">
                             Hide tag
@@ -190,6 +201,8 @@
                                 .checked = config.LogDeletions;
                             page.querySelector('#HideInsteadOfDelete')
                                 .checked = config.HideInsteadOfDelete;
+                            page.querySelector('#HideTagSkipAdmins')
+                                .checked = config.HideTagSkipAdmins;
                             page.querySelector('#HideTag')
                                 .value = config.HideTag;
                             Dashboard.hideLoadingMsg();
@@ -228,6 +241,9 @@
                             config.HideInsteadOfDelete =
                                 page.querySelector(
                                     '#HideInsteadOfDelete').checked;
+                            config.HideTagSkipAdmins =
+                                page.querySelector(
+                                    '#HideTagSkipAdmins').checked;
                             config.HideTag = page.querySelector(
                                 '#HideTag').value;
                             ApiClient.updatePluginConfiguration(

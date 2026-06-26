@@ -22,6 +22,11 @@ public class UserCreatedHandler(
         var dto = userManager.GetUserDto(user);
         var policy = dto.Policy!;
 
+        if (config.HideTagSkipAdmins && policy.IsAdministrator)
+        {
+            return Task.CompletedTask;
+        }
+
         if (policy.BlockedTags.Contains(
                 config.HideTag,
                 StringComparer.OrdinalIgnoreCase))

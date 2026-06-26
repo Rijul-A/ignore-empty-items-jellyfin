@@ -114,6 +114,10 @@ public class SeriesCleaner(
                     );
                 }
             }
+            else if (config.HideInsteadOfDelete)
+            {
+                UntagItem(series, config.HideTag, cancellationToken);
+            }
 
             if (config.DeleteEmptySeasons)
             {

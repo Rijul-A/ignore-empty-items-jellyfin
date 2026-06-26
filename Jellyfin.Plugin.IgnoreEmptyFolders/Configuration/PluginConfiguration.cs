@@ -53,16 +53,31 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Tag empty items instead of deleting them,
     /// and block the tag for all non-admin users.
     /// </summary>
-    public bool HideInsteadOfDelete { get; set; } = false;
+    public bool HideInsteadOfDelete { get; set; } = true;
 
     /// <summary>
     /// Tag applied to empty items when HideInsteadOfDelete is enabled.
     /// </summary>
-    public string HideTag { get; set; } = "plugin-empty";
+    public string HideTag
+    {
+        get; set;
+    } = "plugin-ignore-empty-folders-hidden";
 
     /// <summary>
-    /// The previously used hide tag, used to clean up 
+    /// The previously used hide tag, used to clean up
     /// if the tag is renamed.
     /// </summary>
     public string PreviousHideTag { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Tracks whether hide mode was active on the last run,
+    /// used to detect toggle-off and trigger cleanup.
+    /// </summary>
+    public bool HideInsteadOfDeleteWasActive { get; set; } = false;
+
+    /// <summary>
+    /// Do not add the hide tag to admin users,
+    /// allowing them to see hidden items.
+    /// </summary>
+    public bool HideTagSkipAdmins { get; set; } = true;
 }

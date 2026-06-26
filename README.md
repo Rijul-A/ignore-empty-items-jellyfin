@@ -80,6 +80,8 @@ Go to **Dashboard > Plugins > Ignore Empty Folders** to configure:
 | Delete empty folders | On | Remove folders with no media files. |
 | Delete empty playlists | On | Remove playlists with no items. |
 | Log removed items | On | Write a log entry for each removal. |
+| Hide instead of delete | Off | Tag empty items instead of removing them, and automatically block the tag for all users. Prevents repeated "item added" webhook notifications. |
+| Hide tag | `plugin-empty` | The tag applied to empty items when hide mode is enabled. |
 
 ## How it works
 
@@ -114,3 +116,19 @@ never touched.
   post-scan task removes them.
 - If the plugin is disabled or uninstalled, empty items will reappear
   on the next scan.
+
+## Uninstalling (hide mode)
+
+If you used **Hide instead of delete**, the plugin will have tagged
+items in your library and added a blocked tag to all users. These are
+not cleaned up automatically when the plugin is uninstalled.
+
+Before uninstalling:
+
+1. Go to **Dashboard > Plugins > Ignore Empty Folders**
+2. Disable **Hide instead of delete** and save
+3. Manually trigger **Clean Empty Items** from
+   **Dashboard > Scheduled Tasks**
+
+This removes the tag from all items and from all users' blocked tag
+lists before the plugin is gone.
