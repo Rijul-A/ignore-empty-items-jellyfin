@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Pre-commit hook to enforce buildability and code style.
+
+if ! make build-check; then
+    echo "Error: Build check failed. Run 'make build' to see the full error list."
+    exit 1
+fi
+
+if ! make lint; then
+    echo "Error: Lint checks failed. Run 'make lint' for details."
+    exit 1
+fi
+
+echo "All pre-commit checks passed!"

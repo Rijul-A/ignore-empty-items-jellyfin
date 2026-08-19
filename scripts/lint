@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROJECT_DIR="Jellyfin.Plugin.IgnoreEmptyFolders"
+MAX_LINE_LENGTH=72
+
+FILES=$(git ls-files '*.cs' '*.js')
+
+if [ -z "$FILES" ]; then
+    echo "No C# or JavaScript files to lint."
+    exit 0
+fi
+
+FAILED=0
+
+echo "Checking line lengths..."
+while IFS= read -r file; do
+    [ -z "$file" ] && continue
+
+    long_lines=$(awk -v max="$MAX_LINE_LENGTH" \
+        'length > max { print FNR }' "$file")
+
+    if [ -n "$long_lines" ]; then
+        echo "Error: $file has lines exceeding $MAX_LINE_LENGTH characters:"
+        echo "$long_lines" | xargs echo
+        FAILED=1
+    fi
+done <<< "$FILES"
+
+echo "Running dotnet format verification..."
+if ! dotnet format "$PROJECT_DIR" --verify-no-changes; then
+    echo "Error: Code style violations found. Run 'dotnet format' to fix them."
+    FAILED=1
+fi
+
+if [ "$FAILED" -ne 0 ]; then
+    exit 1
+fi
+
+echo "Lint checks passed!"

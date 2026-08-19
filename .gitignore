@@ -1,3 +1,15 @@
-bin/
-obj/
+[Bb]in/
+[Oo]bj/
+publish/
+.vs/
+.vscode/*
+!.vscode/extensions.json
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.idea/
+*.swp
+*~
 .DS_Store
+.idea/*

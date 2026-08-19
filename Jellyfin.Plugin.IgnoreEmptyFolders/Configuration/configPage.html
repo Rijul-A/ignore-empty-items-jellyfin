@@ -1,35 +1,168 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="utf-8">
     <title>Ignore Empty Folders</title>
 </head>
+
 <body>
-    <div id="IgnoreEmptyFoldersConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div id="IgnoreEmptyFoldersConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+        data-require="emby-input,emby-button,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
                 <form id="IgnoreEmptyFoldersConfigForm">
                     <div class="verticalSection">
-                        <div class="sectionTitleContainer flex align-items-center">
-                            <h2 class="sectionTitle">Ignore Empty Folders</h2>
+                        <div class="sectionTitleContainer
+                            flex align-items-center">
+                            <h2 class="sectionTitle">
+                                Ignore Empty Folders
+                            </h2>
                         </div>
                     </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
                         <label>
-                            <input type="checkbox" is="emby-checkbox" id="Enabled" />
-                            <span>Enable plugin</span>
+                            <input type="checkbox" is="emby-checkbox" id="DeleteEmptyShows" />
+                            <span>Delete empty TV shows</span>
                         </label>
-                        <div class="fieldDescription">When enabled, TV shows with no video files will be automatically removed from the library after each scan.</div>
+                        <div class="fieldDescription">
+                            TV shows with no video files will be
+                            automatically removed from the library
+                            after each scan.
+                        </div>
                     </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="DeleteEmptySeasons" />
+                            <span>Delete empty seasons</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Individual seasons with no video files will
+                            be automatically removed from the library
+                            after each scan.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="DeleteEmptyMovies" />
+                            <span>Delete empty movies</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Movies with no video files will be
+                            automatically removed from the library
+                            after each scan.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="DeleteEmptyMusicArtists" />
+                            <span>Delete empty music artists</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Music artists with no audio tracks will be
+                            automatically removed from the library
+                            after each scan.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="DeleteEmptyMusicAlbums" />
+                            <span>Delete empty music albums</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Music albums with no audio tracks will be
+                            automatically removed from the library
+                            after each scan.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="DeleteEmptyCollections" />
+                            <span>Delete empty collections</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Collections (boxsets) with no items will be
+                            automatically removed from the library
+                            after each scan.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="DeleteEmptyFolders" />
+                            <span>Delete empty folders</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Folders with no media files will be
+                            automatically removed from the library
+                            after each scan.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="DeleteEmptyPlaylists" />
+                            <span>Delete empty playlists</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Playlists with no items will be
+                            automatically removed from the library
+                            after each scan.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
                         <label>
                             <input type="checkbox" is="emby-checkbox" id="LogDeletions" />
-                            <span>Log removed shows</span>
+                            <span>Log removed items</span>
                         </label>
-                        <div class="fieldDescription">Write a log entry for each show that is removed.</div>
+                        <div class="fieldDescription">
+                            Write a log entry for each item that is
+                            removed.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="HideInsteadOfDelete" />
+                            <span>Hide instead of delete</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Tag empty items and block the tag for all
+                            non-admin users instead of deleting them.
+                            Prevents repeated "item added" notifications.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer
+                        checkboxContainer-withDescription">
+                        <label>
+                            <input type="checkbox" is="emby-checkbox" id="HideTagSkipAdmins" />
+                            <span>Skip admins for hide tag</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Do not add the hide tag to admin users,
+                            allowing them to see hidden items.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="HideTag">
+                            Hide tag
+                        </label>
+                        <input type="text" is="emby-input" id="HideTag" />
+                        <div class="fieldDescription">
+                            Tag applied to empty items when
+                            "Hide instead of delete" is enabled.
+                        </div>
                     </div>
                     <div>
-                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                        <button is="emby-button" type="submit" class="raised button-submit block
+                            emby-button">
                             <span>Save</span>
                         </button>
                     </div>
@@ -44,28 +177,88 @@
             document.querySelector('#IgnoreEmptyFoldersConfigPage')
                 .addEventListener('pageshow', function () {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(PluginConfig.pluginId).then(function (config) {
-                        document.querySelector('#Enabled').checked = config.Enabled;
-                        document.querySelector('#LogDeletions').checked = config.LogDeletions;
-                        Dashboard.hideLoadingMsg();
-                    });
+                    ApiClient.getPluginConfiguration(
+                        PluginConfig.pluginId).then(function (config) {
+                            var page = document.querySelector(
+                                '#IgnoreEmptyFoldersConfigPage');
+                            page.querySelector('#DeleteEmptyShows')
+                                .checked = config.DeleteEmptyShows;
+                            page.querySelector('#DeleteEmptySeasons')
+                                .checked = config.DeleteEmptySeasons;
+                            page.querySelector('#DeleteEmptyMovies')
+                                .checked = config.DeleteEmptyMovies;
+                            page.querySelector('#DeleteEmptyMusicArtists')
+                                .checked = config.DeleteEmptyMusicArtists;
+                            page.querySelector('#DeleteEmptyMusicAlbums')
+                                .checked = config.DeleteEmptyMusicAlbums;
+                            page.querySelector('#DeleteEmptyCollections')
+                                .checked = config.DeleteEmptyCollections;
+                            page.querySelector('#DeleteEmptyFolders')
+                                .checked = config.DeleteEmptyFolders;
+                            page.querySelector('#DeleteEmptyPlaylists')
+                                .checked = config.DeleteEmptyPlaylists;
+                            page.querySelector('#LogDeletions')
+                                .checked = config.LogDeletions;
+                            page.querySelector('#HideInsteadOfDelete')
+                                .checked = config.HideInsteadOfDelete;
+                            page.querySelector('#HideTagSkipAdmins')
+                                .checked = config.HideTagSkipAdmins;
+                            page.querySelector('#HideTag')
+                                .value = config.HideTag;
+                            Dashboard.hideLoadingMsg();
+                        });
                 });
 
             document.querySelector('#IgnoreEmptyFoldersConfigForm')
                 .addEventListener('submit', function (e) {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(PluginConfig.pluginId).then(function (config) {
-                        config.Enabled = document.querySelector('#Enabled').checked;
-                        config.LogDeletions = document.querySelector('#LogDeletions').checked;
-                        ApiClient.updatePluginConfiguration(PluginConfig.pluginId, config).then(function () {
-                            Dashboard.processPluginConfigurationUpdateResult();
-                            Dashboard.hideLoadingMsg();
+                    ApiClient.getPluginConfiguration(
+                        PluginConfig.pluginId).then(function (config) {
+                            var page = document.querySelector(
+                                '#IgnoreEmptyFoldersConfigPage');
+                            config.DeleteEmptyShows = page.querySelector(
+                                '#DeleteEmptyShows').checked;
+                            config.DeleteEmptySeasons = page.querySelector(
+                                '#DeleteEmptySeasons').checked;
+                            config.DeleteEmptyMovies = page.querySelector(
+                                '#DeleteEmptyMovies').checked;
+                            config.DeleteEmptyMusicArtists =
+                                page.querySelector(
+                                    '#DeleteEmptyMusicArtists').checked;
+                            config.DeleteEmptyMusicAlbums =
+                                page.querySelector(
+                                    '#DeleteEmptyMusicAlbums').checked;
+                            config.DeleteEmptyCollections =
+                                page.querySelector(
+                                    '#DeleteEmptyCollections').checked;
+                            config.DeleteEmptyFolders = page.querySelector(
+                                '#DeleteEmptyFolders').checked;
+                            config.DeleteEmptyPlaylists =
+                                page.querySelector(
+                                    '#DeleteEmptyPlaylists').checked;
+                            config.LogDeletions = page.querySelector(
+                                '#LogDeletions').checked;
+                            config.HideInsteadOfDelete =
+                                page.querySelector(
+                                    '#HideInsteadOfDelete').checked;
+                            config.HideTagSkipAdmins =
+                                page.querySelector(
+                                    '#HideTagSkipAdmins').checked;
+                            config.HideTag = page.querySelector(
+                                '#HideTag').value;
+                            ApiClient.updatePluginConfiguration(
+                                PluginConfig.pluginId, config).then(
+                                    function () {
+                                        Dashboard
+                                            .processPluginConfigurationUpdateResult();
+                                        Dashboard.hideLoadingMsg();
+                                    });
                         });
-                    });
                     e.preventDefault();
                     return false;
                 });
         </script>
     </div>
 </body>
+
 </html>
