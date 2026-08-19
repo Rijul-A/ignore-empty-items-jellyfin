@@ -1,18 +1,19 @@
 # Jellyfin Plugin: Ignore Empty Folders
 
-Automatically removes library items that have no media files associated
-with them.
+Automatically hides or removes library items that have no media files
+associated with them.
 
 > [!IMPORTANT]
-> **This plugin only removes entries from the Jellyfin database.**
+> **This plugin only changes Jellyfin's library database and metadata.**
 > It **never** deletes or modifies any files or folders on your disk.
 
 ## What it does
 
 After every library scan, the plugin identifies items with zero actual
-media files and removes them from the Jellyfin database. The folders on
-disk are left untouched — when you later add media files, the next scan
-picks them up and the item stays.
+media files and either hides or removes them from Jellyfin, depending on
+your configuration. The folders on disk are left untouched — when you
+later add media files, the next scan picks them up and the item becomes
+visible again (in hide mode) or is recreated (in delete mode).
 
 This is useful if you maintain a folder structure for upcoming content
 (with subtitles, NFO files, etc.) but don't want them cluttering your
@@ -80,55 +81,68 @@ Go to **Dashboard > Plugins > Ignore Empty Folders** to configure:
 | Delete empty folders | On | Remove folders with no media files. |
 | Delete empty playlists | On | Remove playlists with no items. |
 | Log removed items | On | Write a log entry for each removal. |
-| Hide instead of delete | Off | Tag empty items instead of removing them, and automatically block the tag for all users. Prevents repeated "item added" webhook notifications. |
-| Hide tag | `plugin-empty` | The tag applied to empty items when hide mode is enabled. |
+| Hide instead of delete | On | Tag empty items instead of removing them, and automatically block the tag for regular users. Prevents repeated "item added" webhook notifications. |
+| Skip admins for hide tag | On | Do not block the hide tag for administrators, allowing them to see hidden items. |
+| Hide tag | `plugin-ignore-empty-folders-hidden` | The tag applied to empty items when hide mode is enabled. |
 
 ## How it works
 
 The plugin provides two mechanisms:
 
 1. **Post-scan task** — Runs automatically after every library scan.
-   Checks your library based on your configuration and removes empty
-   items.
+   Checks your library based on your configuration and hides or removes
+   empty items.
 
 2. **Scheduled task** — "Clean Empty Items" appears in
    **Dashboard > Scheduled Tasks**. Runs every 24 hours by default.
    Can also be triggered manually.
 
 Both mechanisms share the same logic and respect the plugin's
-configuration.
+configuration. Saving configuration changes also synchronizes the hide
+tag for existing users and newly created users.
 
-### What gets removed
+### How emptiness is determined
 
-Items are removed when they contain **zero** media files that are:
+Items are considered empty when they contain **zero** relevant media or
+child items that are:
 - Non-virtual (not metadata-only placeholders)
 - Non-missing (not marked as unavailable)
 
-### What stays on disk
+In hide mode, empty items receive the hide tag and are hidden from users
+whose policies block that tag. In delete mode, the Jellyfin database
+entry is removed, while its on-disk location is preserved.
 
-The plugin only removes entries from Jellyfin's database. Your folder
-structure, metadata files, subtitles, and any other files on disk are
-never touched.
+### What happens on disk
+
+Your folder structure, metadata files, subtitles, and any other files on
+disk are never touched. Delete mode only removes the corresponding entry
+from Jellyfin's database; hide mode only changes Jellyfin metadata and
+user visibility.
 
 ## Limitations
 
 - Empty items will briefly appear during a library scan before the
-  post-scan task removes them.
-- If the plugin is disabled or uninstalled, empty items will reappear
-  on the next scan.
+  post-scan task hides or removes them.
+- In delete mode, empty items may reappear on the next scan because the
+  files and folders remain on disk.
+- In hide mode, tagged items remain hidden until they contain media or
+  the hide tag is removed. If the plugin is uninstalled without first
+  disabling hide mode, the tags and user policies must be cleaned up
+  manually.
 
 ## Uninstalling (hide mode)
 
 If you used **Hide instead of delete**, the plugin will have tagged
-items in your library and added a blocked tag to all users. These are
-not cleaned up automatically when the plugin is uninstalled.
+items in your library and added a blocked tag to applicable users. These
+tags are not cleaned up automatically if the plugin is uninstalled first.
 
 Before uninstalling:
 
 1. Go to **Dashboard > Plugins > Ignore Empty Folders**
-2. Disable **Hide instead of delete** and save
-3. Manually trigger **Clean Empty Items** from
-   **Dashboard > Scheduled Tasks**
+2. Disable **Hide instead of delete** and save. The plugin immediately
+   removes its hide tag from items and user policies when the setting is
+   saved.
 
-This removes the tag from all items and from all users' blocked tag
-lists before the plugin is gone.
+You do not need to run **Clean Empty Items** for this tag cleanup. You
+may still run that task manually if you also want to perform a normal
+empty-item cleanup before uninstalling.
