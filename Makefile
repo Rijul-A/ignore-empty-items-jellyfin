@@ -2,7 +2,7 @@ PROJECT_DIR=Jellyfin.Plugin.IgnoreEmptyFolders
 BUILD_CONFIG=Release
 PUBLISH_DIR=publish
 
-.PHONY: all restore build clean publish build-check install-hooks
+.PHONY: all restore build lint clean publish build-check install-hooks
 
 all: build
 
@@ -11,6 +11,9 @@ restore:
 
 build: restore
 	dotnet build $(PROJECT_DIR) -c $(BUILD_CONFIG)
+
+lint: restore
+	@scripts/lint
 
 # Fast build check for pre-commit hook (uses isolated obj folder and no-restore)
 build-check:

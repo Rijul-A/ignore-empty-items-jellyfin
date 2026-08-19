@@ -1,54 +1,15 @@
 #!/bin/bash
 
-# Pre-commit hook to enforce code style, 72 character line limit, and build-ability
+# Pre-commit hook to enforce buildability and code style.
 
-# 1. Verify build via Makefile
 if ! make build-check; then
-    echo "Error: Build check failed. The project is currently in a non-compilable state."
-    echo "Run 'make build' to see the full error list."
+    echo "Error: Build check failed. Run 'make build' to see the full error list."
     exit 1
 fi
 
-# Get the staged files for further checks
-FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cs|js)$')
-
-if [ -z "$FILES" ]; then
-    echo "No C# or JS files staged, skipping style checks."
-    exit 0
-fi
-
-FAILED=0
-
-# 2. Check for line length (72 characters)
-echo "Checking line lengths..."
-for FILE in $FILES; do
-    # Skip generated files
-    if [[ $FILE == *"obj/"* ]] || [[ $FILE == *"bin/"* ]]; then
-        continue
-    fi
-
-    LONG_LINES=$(awk 'length > 72 {print FNR}' "$FILE")
-
-    if [ -n "$LONG_LINES" ]; then
-        echo "Error: $FILE has lines exceeding 72 characters at lines:"
-        echo "$LONG_LINES" | xargs echo
-        FAILED=1
-    fi
-done
-
-# 3. Run dotnet format verification for staged C# files
-CS_FILES=$(echo "$FILES" | grep '\.cs$')
-if [ -n "$CS_FILES" ]; then
-    echo "Running dotnet format verification..."
-    if ! dotnet format ./Jellyfin.Plugin.IgnoreEmptyFolders --verify-no-changes; then
-        echo "Error: Code style violations found. Run 'dotnet format' to fix them."
-        FAILED=1
-    fi
-fi
-
-if [ $FAILED -eq 1 ]; then
+if ! make lint; then
+    echo "Error: Lint checks failed. Run 'make lint' for details."
     exit 1
 fi
 
-echo "All checks passed!"
-exit 0
+echo "All pre-commit checks passed!"
