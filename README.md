@@ -1,4 +1,9 @@
-# Jellyfin Plugin: Ignore Empty Folders
+# Ignore Empty Folders
+
+This is an unofficial fork of the upstream Ignore Empty Folders plugin for
+Jellyfin.
+It is maintained independently and is not affiliated with or endorsed by
+the upstream project.
 
 Automatically hides or removes library items that have no media files
 associated with them.
@@ -37,11 +42,17 @@ The plugin can be configured to clean up:
 Add this repository URL in **Dashboard > Plugins > Repositories**:
 
 ```
-https://jonathanduvalv.github.io/jellyfin-ignore-empty-folder/repository.json
+https://rijul-a.github.io/jellyfin-ignore-empty-folder/repository.json
 ```
 
 Once added, the plugin will appear in the plugin catalog and can be
 installed and updated directly from the Dashboard.
+
+The repository manifest and release downloads are hosted by this fork's
+GitHub Pages site and GitHub Releases. Releases are generated
+automatically when a version tag such as `v1.0.0` is pushed. The GitHub
+repository must have **Settings > Pages > Source** set to **GitHub
+Actions** for the manifest site to be available.
 
 ### Manual installation
 
@@ -146,3 +157,13 @@ Before uninstalling:
 You do not need to run **Clean Empty Items** for this tag cleanup. You
 may still run that task manually if you also want to perform a normal
 empty-item cleanup before uninstalling.
+
+## Fork and licensing
+
+This fork includes code inherited from the upstream project and later
+fork contributions. The MIT license in [`LICENSE`](LICENSE) applies only
+to original contributions made after upstream commit
+`6bf9798ee649f44c1efb43ef4b55b8f48fcb254a`. It does not apply to that
+commit or any earlier commit, and does not relicense upstream or other
+third-party code, which remains subject to its original copyright and
+licensing terms.
