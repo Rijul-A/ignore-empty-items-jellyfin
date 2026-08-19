@@ -41,6 +41,7 @@ jobs:
         run: |
           mkdir -p staging
           cp Jellyfin.Plugin.IgnoreEmptyFolders/bin/Release/net9.0/Jellyfin.Plugin.IgnoreEmptyFolders.dll staging/
+          cp assets/icon.png staging/
           cat > staging/meta.json <<EOF
           {
             "guid": "f310dc1b-ea81-4cbc-bdc1-19f32a0542a8",
@@ -53,6 +54,7 @@ jobs:
             "version": "${{ steps.version.outputs.VERSION }}",
             "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "autoUpdate": true,
+            "imagePath": "icon.png",
             "assemblies": ["Jellyfin.Plugin.IgnoreEmptyFolders.dll"]
           }
           EOF
@@ -73,6 +75,7 @@ jobs:
               "name": "Ignore Empty Items",
               "description": "Automatically hides or removes empty Jellyfin library items.",
               "overview": "Automatically hides or removes empty Jellyfin library items.",
+              "imageUrl": "https://raw.githubusercontent.com/${{ github.repository }}/main/assets/icon.png",
               "owner": "Rijul-A",
               "category": "Library",
               "versions": [
