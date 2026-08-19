@@ -42,7 +42,7 @@ The plugin can be configured to clean up:
 Add this repository URL in **Dashboard > Plugins > Repositories**:
 
 ```
-https://rijul-a.github.io/jellyfin-ignore-empty-folder/repository.json
+https://rijul-a.github.io/ignore-empty-items-jellyfin/repository.json
 ```
 
 Once added, the plugin will appear in the plugin catalog and can be
