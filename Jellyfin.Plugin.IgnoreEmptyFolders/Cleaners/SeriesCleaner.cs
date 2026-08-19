@@ -37,7 +37,7 @@ public class SeriesCleaner(
             });
 
         Logger.LogInformation(
-            "Ignore Empty Folders: Checking {Count} series",
+            "Ignore Empty Items: Checking {Count} series",
             seriesList.Count);
 
         var removedCount = 0;
@@ -69,7 +69,7 @@ public class SeriesCleaner(
                     if (config.LogDeletions)
                     {
                         Logger.LogInformation(
-                            "Ignore Empty Folders: Hiding/removing " +
+                            "Ignore Empty Items: Hiding/removing " +
                             "series \"{Name}\" - no files",
                             series.Name);
                     }
@@ -100,7 +100,7 @@ public class SeriesCleaner(
                     {
                         Logger.LogWarning(
                             ex,
-                            "Ignore Empty Folders: Failed to remove " +
+                            "Ignore Empty Items: Failed to remove " +
                             "series \"{Name}\"",
                             series.Name);
                     }
@@ -167,7 +167,7 @@ public class SeriesCleaner(
                 if (config.LogDeletions)
                 {
                     Logger.LogInformation(
-                        "Ignore Empty Folders: Hiding/removing " +
+                        "Ignore Empty Items: Hiding/removing " +
                         "season \"{Name}\" of series \"{SeriesName}\"",
                         season.Name,
                         series.Name);
@@ -194,7 +194,7 @@ public class SeriesCleaner(
                 {
                     Logger.LogWarning(
                         ex,
-                        "Ignore Empty Folders: Failed to remove " +
+                        "Ignore Empty Items: Failed to remove " +
                         "season \"{Name}\"",
                         season.Name);
                 }

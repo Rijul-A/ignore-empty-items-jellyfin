@@ -37,7 +37,7 @@ public class UserCreatedHandler(
         policy.BlockedTags = [.. policy.BlockedTags, config.HideTag];
 
         logger.LogInformation(
-            "Ignore Empty Folders: Added blocked tag \"{Tag}\" " +
+            "Ignore Empty Items: Added blocked tag \"{Tag}\" " +
             "for new user \"{User}\"",
             config.HideTag,
             user.Username);

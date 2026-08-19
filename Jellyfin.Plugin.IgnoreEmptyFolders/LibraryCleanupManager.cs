@@ -51,7 +51,7 @@ public class LibraryCleanupManager(
             string.IsNullOrWhiteSpace(config.HideTag))
         {
             _logger.LogWarning(
-                "Ignore Empty Folders: HideTag is empty, " +
+                "Ignore Empty Items: HideTag is empty, " +
                 "skipping hide mode processing");
             return;
         }
@@ -130,7 +130,7 @@ public class LibraryCleanupManager(
         if (enabledCleaners.Count == 0)
         {
             _logger.LogInformation(
-                "Ignore Empty Folders: No cleanup tasks enabled.");
+                "Ignore Empty Items: No cleanup tasks enabled.");
             progress.Report(100);
             return;
         }
@@ -164,7 +164,7 @@ public class LibraryCleanupManager(
         }
 
         _logger.LogInformation(
-            "Ignore Empty Folders: Total removed {Count} empty items",
+            "Ignore Empty Items: Total removed {Count} empty items",
             removedCount);
 
         progress.Report(100);
@@ -178,13 +178,13 @@ public class LibraryCleanupManager(
         if (string.IsNullOrEmpty(newTag))
         {
             _logger.LogInformation(
-                "Ignore Empty Folders: Removing hide tag \"{OldTag}\"",
+                "Ignore Empty Items: Removing hide tag \"{OldTag}\"",
                 oldTag);
         }
         else
         {
             _logger.LogInformation(
-                "Ignore Empty Folders: Migrating hide tag " +
+                "Ignore Empty Items: Migrating hide tag " +
                 "from \"{OldTag}\" to \"{NewTag}\"",
                 oldTag,
                 newTag);
@@ -215,7 +215,7 @@ public class LibraryCleanupManager(
         }
 
         _logger.LogInformation(
-            "Ignore Empty Folders: Updated {Count} items " +
+            "Ignore Empty Items: Updated {Count} items " +
             "during tag migration",
             taggedItems.Count);
 
@@ -237,7 +237,7 @@ public class LibraryCleanupManager(
                 .GetAwaiter().GetResult();
 
             _logger.LogInformation(
-                "Ignore Empty Folders: Removed old tag \"{OldTag}\" " +
+                "Ignore Empty Items: Removed old tag \"{OldTag}\" " +
                 "from user \"{User}\"",
                 oldTag,
                 user.Username);
@@ -251,7 +251,7 @@ public class LibraryCleanupManager(
         var config = Plugin.Instance?.Configuration;
         var users = userManager.GetUsers().ToList();
         _logger.LogInformation(
-            "Ignore Empty Folders: Syncing hide tag for " +
+            "Ignore Empty Items: Syncing hide tag for " +
             "{Count} users",
             users.Count);
 
@@ -279,7 +279,7 @@ public class LibraryCleanupManager(
             userManager.UpdatePolicyAsync(user.Id, policy)
                 .GetAwaiter().GetResult();
             _logger.LogInformation(
-                "Ignore Empty Folders: Added blocked tag \"{Tag}\" " +
+                "Ignore Empty Items: Added blocked tag \"{Tag}\" " +
                 "for user \"{User}\"",
                 tag,
                 user.Username);
@@ -292,7 +292,7 @@ public class LibraryCleanupManager(
             userManager.UpdatePolicyAsync(user.Id, policy)
                 .GetAwaiter().GetResult();
             _logger.LogInformation(
-                "Ignore Empty Folders: Removed blocked tag \"{Tag}\" " +
+                "Ignore Empty Items: Removed blocked tag \"{Tag}\" " +
                 "from user \"{User}\"",
                 tag,
                 user.Username);

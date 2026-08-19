@@ -52,7 +52,7 @@ public class ContainerCleaner(
             });
 
         Logger.LogInformation(
-            "Ignore Empty Folders: Checking {Count} containers",
+            "Ignore Empty Items: Checking {Count} containers",
             containers.Count);
 
         var total = containers.Count;
@@ -113,7 +113,7 @@ public class ContainerCleaner(
                 if (config.LogDeletions)
                 {
                     Logger.LogInformation(
-                        "Ignore Empty Folders: Hiding/removing " +
+                        "Ignore Empty Items: Hiding/removing " +
                         "{Type} \"{Name}\"",
                         container.GetType().Name,
                         container.Name);
@@ -144,7 +144,7 @@ public class ContainerCleaner(
                     {
                         Logger.LogWarning(
                             ex,
-                            "Ignore Empty Folders: Failed to remove " +
+                            "Ignore Empty Items: Failed to remove " +
                             "{Type} \"{Name}\"",
                             container.GetType().Name,
                             container.Name);

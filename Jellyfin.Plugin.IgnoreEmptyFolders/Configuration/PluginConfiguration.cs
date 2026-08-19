@@ -61,7 +61,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public string HideTag
     {
         get; set;
-    } = "plugin-ignore-empty-folders-hidden";
+    } = "plugin-ignore-empty-items-hidden";
 
     /// <summary>
     /// The previously used hide tag, used to clean up
