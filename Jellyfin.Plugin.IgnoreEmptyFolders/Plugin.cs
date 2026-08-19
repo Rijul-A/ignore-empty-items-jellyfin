@@ -21,15 +21,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
     }
 
-    public override string Name => "Ignore Empty Folders";
+    public override string Name => "Ignore Empty Items";
 
     public override string Description =>
-        "Automatically removes TV shows, seasons, movies, " +
+        "Automatically hides or removes TV shows, seasons, movies, " +
         "music artists, albums, collections, folders and " +
         "playlists that have no media files from the library.";
 
     public override Guid Id =>
-        Guid.Parse("b3e4f5a6-7890-4abc-def0-123456789abc");
+        Guid.Parse("f310dc1b-ea81-4cbc-bdc1-19f32a0542a8");
 
     public IEnumerable<PluginPageInfo> GetPages()
     {

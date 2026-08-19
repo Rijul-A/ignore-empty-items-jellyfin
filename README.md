@@ -1,4 +1,4 @@
-# Ignore Empty Folders
+# Ignore Empty Items
 
 This is an unofficial fork of the upstream Ignore Empty Folders plugin for
 Jellyfin.
@@ -56,11 +56,11 @@ Actions** for the manifest site to be available.
 
 ### Manual installation
 
-1. Download the latest `ignore-empty-folders-X.X.X.zip` from
+1. Download the latest `ignore-empty-items-X.X.X.zip` from
    [Releases](../../releases)
 2. Create a plugin directory in your Jellyfin config:
    ```
-   /config/plugins/Ignore Empty Folders_{version}/
+   /config/plugins/Ignore Empty Items_{version}/
    ```
 3. Extract the ZIP contents (DLL + `meta.json`) into that directory
 4. Restart Jellyfin
@@ -79,7 +79,7 @@ Copy it to your plugins directory.
 
 ## Configuration
 
-Go to **Dashboard > Plugins > Ignore Empty Folders** to configure:
+Go to **Dashboard > Plugins > Ignore Empty Items** to configure:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -94,7 +94,7 @@ Go to **Dashboard > Plugins > Ignore Empty Folders** to configure:
 | Log removed items | On | Write a log entry for each removal. |
 | Hide instead of delete | On | Tag empty items instead of removing them, and automatically block the tag for regular users. Prevents repeated "item added" webhook notifications. |
 | Skip admins for hide tag | On | Do not block the hide tag for administrators, allowing them to see hidden items. |
-| Hide tag | `plugin-ignore-empty-folders-hidden` | The tag applied to empty items when hide mode is enabled. |
+| Hide tag | `plugin-ignore-empty-items-hidden` | The tag applied to empty items when hide mode is enabled. |
 
 ## How it works
 
@@ -149,7 +149,7 @@ tags are not cleaned up automatically if the plugin is uninstalled first.
 
 Before uninstalling:
 
-1. Go to **Dashboard > Plugins > Ignore Empty Folders**
+1. Go to **Dashboard > Plugins > Ignore Empty Items**
 2. Disable **Hide instead of delete** and save. The plugin immediately
    removes its hide tag from items and user policies when the setting is
    saved.

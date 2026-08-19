@@ -37,19 +37,14 @@ jobs:
             -c Release \
             -p:Version=${{ steps.version.outputs.VERSION }}
 
-      - name: Package release
+      - name: Generate meta.json
         run: |
           mkdir -p staging
           cp Jellyfin.Plugin.IgnoreEmptyFolders/bin/Release/net9.0/Jellyfin.Plugin.IgnoreEmptyFolders.dll staging/
-          cd staging
-          zip -r ../ignore-empty-folders-${{ steps.version.outputs.VERSION }}.zip .
-
-      - name: Generate meta.json
-        run: |
           cat > staging/meta.json <<EOF
           {
-            "guid": "b3e4f5a6-7890-4abc-def0-123456789abc",
-            "name": "Ignore Empty Folders",
+            "guid": "f310dc1b-ea81-4cbc-bdc1-19f32a0542a8",
+            "name": "Ignore Empty Items",
             "description": "Automatically hides or removes empty Jellyfin library items.",
             "overview": "Automatically hides or removes empty Jellyfin library items.",
             "owner": "Rijul-A",
@@ -62,15 +57,20 @@ jobs:
           }
           EOF
 
+      - name: Package release
+        run: |
+          cd staging
+          zip -r ../ignore-empty-items-${{ steps.version.outputs.VERSION }}.zip .
+
       - name: Generate repository manifest
         run: |
-          CHECKSUM=$(md5sum ignore-empty-folders-${{ steps.version.outputs.VERSION }}.zip | cut -d' ' -f1)
+          CHECKSUM=$(md5sum ignore-empty-items-${{ steps.version.outputs.VERSION }}.zip | cut -d' ' -f1)
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           cat > repository.json <<EOF
           [
             {
-              "guid": "b3e4f5a6-7890-4abc-def0-123456789abc",
-              "name": "Ignore Empty Folders",
+              "guid": "f310dc1b-ea81-4cbc-bdc1-19f32a0542a8",
+              "name": "Ignore Empty Items",
               "description": "Automatically hides or removes empty Jellyfin library items.",
               "overview": "Automatically hides or removes empty Jellyfin library items.",
               "owner": "Rijul-A",
@@ -80,7 +80,7 @@ jobs:
                   "version": "${{ steps.version.outputs.VERSION }}",
                   "changelog": "Release ${{ steps.version.outputs.VERSION }}",
                   "targetAbi": "10.11.0.0",
-                  "sourceUrl": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ignore-empty-folders-${{ steps.version.outputs.VERSION }}.zip",
+                  "sourceUrl": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ignore-empty-items-${{ steps.version.outputs.VERSION }}.zip",
                   "checksum": "${CHECKSUM}",
                   "timestamp": "${TIMESTAMP}"
                 }
@@ -92,10 +92,10 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: Ignore Empty Folders ${{ steps.version.outputs.VERSION }}
+          name: Ignore Empty Items ${{ steps.version.outputs.VERSION }}
           generate_release_notes: true
           files: |
-            ignore-empty-folders-${{ steps.version.outputs.VERSION }}.zip
+            ignore-empty-items-${{ steps.version.outputs.VERSION }}.zip
             staging/meta.json
             repository.json
 

@@ -65,7 +65,7 @@ public class MovieCleaner(
         var allEmptyMovies = movies.Concat(missingMovies).ToList();
 
         Logger.LogInformation(
-            "Ignore Empty Folders: Checking {Count} empty movies",
+            "Ignore Empty Items: Checking {Count} empty movies",
             allEmptyMovies.Count);
 
         var removedCount = 0;
@@ -80,7 +80,7 @@ public class MovieCleaner(
             if (config.LogDeletions)
             {
                 Logger.LogInformation(
-                    "Ignore Empty Folders: Removing movie \"{Name}\"",
+                    "Ignore Empty Items: Removing movie \"{Name}\"",
                     movie.Name);
             }
 
@@ -106,7 +106,7 @@ public class MovieCleaner(
                 {
                     Logger.LogWarning(
                         ex,
-                        "Ignore Empty Folders: Failed to remove " +
+                        "Ignore Empty Items: Failed to remove " +
                         "movie \"{Name}\"",
                         movie.Name);
                 }

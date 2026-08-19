@@ -58,7 +58,7 @@ public class MusicCleaner(
             });
 
         Logger.LogInformation(
-            "Ignore Empty Folders: Checking {Count} artists",
+            "Ignore Empty Items: Checking {Count} artists",
             artists.Count);
 
         var total = artists.Count;
@@ -83,7 +83,7 @@ public class MusicCleaner(
                 if (config.LogDeletions)
                 {
                     Logger.LogInformation(
-                        "Ignore Empty Folders: Hiding/removing " +
+                        "Ignore Empty Items: Hiding/removing " +
                         "artist \"{Name}\"",
                         artist.Name);
                 }
@@ -109,7 +109,7 @@ public class MusicCleaner(
                     {
                         Logger.LogWarning(
                             ex,
-                            "Ignore Empty Folders: Failed to remove " +
+                        "Ignore Empty Items: Failed to remove " +
                             "artist \"{Name}\"",
                             artist.Name);
                     }
@@ -140,7 +140,7 @@ public class MusicCleaner(
             });
 
         Logger.LogInformation(
-            "Ignore Empty Folders: Checking {Count} albums",
+            "Ignore Empty Items: Checking {Count} albums",
             albums.Count);
 
         var total = albums.Count;
@@ -165,7 +165,7 @@ public class MusicCleaner(
                 if (config.LogDeletions)
                 {
                     Logger.LogInformation(
-                        "Ignore Empty Folders: Hiding/removing album " +
+                    "Ignore Empty Items: Hiding/removing album " +
                         "\"{Name}\"",
                         album.Name);
                 }
@@ -191,7 +191,7 @@ public class MusicCleaner(
                     {
                         Logger.LogWarning(
                             ex,
-                            "Ignore Empty Folders: Failed to remove " +
+                        "Ignore Empty Items: Failed to remove " +
                             "album \"{Name}\"",
                             album.Name);
                     }
