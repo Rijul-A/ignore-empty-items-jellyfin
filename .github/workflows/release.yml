@@ -2,12 +2,15 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  merge_group:
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: "pages"
@@ -92,12 +95,11 @@ jobs:
           ]
           EOF
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
         with:
-          name: Ignore Empty Items ${{ steps.version.outputs.VERSION }}
-          generate_release_notes: true
-          files: |
+          name: release-assets
+          path: |
             ignore-empty-items-${{ steps.version.outputs.VERSION }}.zip
             staging/meta.json
             repository.json
@@ -108,9 +110,37 @@ jobs:
           name: repository-manifest
           path: repository.json
 
-  deploy-pages:
+  publish-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Ignore Empty Items ${{ needs.release.outputs.version }}
+          generate_release_notes: true
+          files: |
+            ignore-empty-items-${{ needs.release.outputs.version }}.zip
+            staging/meta.json
+            repository.json
+
+  deploy-pages:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
