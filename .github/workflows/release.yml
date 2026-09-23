@@ -25,7 +25,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Extract version from tag
         id: version
@@ -40,7 +40,7 @@ jobs:
       - name: Generate meta.json
         run: |
           mkdir -p staging
-          cp Jellyfin.Plugin.IgnoreEmptyFolders/bin/Release/net9.0/Jellyfin.Plugin.IgnoreEmptyFolders.dll staging/
+          cp Jellyfin.Plugin.IgnoreEmptyFolders/bin/Release/net10.0/Jellyfin.Plugin.IgnoreEmptyFolders.dll staging/
           cp assets/icon.png staging/
           cat > staging/meta.json <<EOF
           {
@@ -50,7 +50,7 @@ jobs:
             "overview": "Automatically hides or removes empty Jellyfin library items.",
             "owner": "Rijul-A",
             "category": "Library",
-            "targetAbi": "10.11.0.0",
+            "targetAbi": "12.0.0.0",
             "version": "${{ steps.version.outputs.VERSION }}",
             "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "autoUpdate": true,
@@ -82,7 +82,7 @@ jobs:
                 {
                   "version": "${{ steps.version.outputs.VERSION }}",
                   "changelog": "Release ${{ steps.version.outputs.VERSION }}",
-                  "targetAbi": "10.11.0.0",
+                  "targetAbi": "12.0.0.0",
                   "sourceUrl": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ignore-empty-items-${{ steps.version.outputs.VERSION }}.zip",
                   "checksum": "${CHECKSUM}",
                   "timestamp": "${TIMESTAMP}"

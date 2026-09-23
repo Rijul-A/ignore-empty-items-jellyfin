@@ -67,14 +67,14 @@ Actions** for the manifest site to be available.
 
 ### Building from source
 
-Requires .NET 9 SDK:
+Requires .NET 10 SDK:
 
 ```bash
 make build
 ```
 
 The DLL is output to:
-`Jellyfin.Plugin.IgnoreEmptyFolders/bin/Release/net9.0/`.
+`Jellyfin.Plugin.IgnoreEmptyFolders/bin/Release/net10.0/`.
 Copy it to your plugins directory.
 
 ## Configuration
