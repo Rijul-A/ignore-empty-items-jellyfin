@@ -1,0 +1,13 @@
+name: Validate repository
+description: Run repository tests and lint checks
+
+runs:
+  using: composite
+  steps:
+    - name: Run tests
+      shell: bash
+      run: make test
+
+    - name: Run lint checks
+      shell: bash
+      run: make lint
