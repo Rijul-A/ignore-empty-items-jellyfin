@@ -77,6 +77,44 @@ The DLL is output to:
 `Jellyfin.Plugin.IgnoreEmptyFolders/bin/Release/net10.0/`.
 Copy it to your plugins directory.
 
+### Testing
+
+Requires the .NET 10 SDK and ASP.NET Core runtime:
+
+```bash
+make test
+```
+
+The tests cover unloaded linked containers, hide mode, delete mode, and
+non-empty container preservation.
+
+The lint suite also checks shell scripts, YAML, GitHub Actions, and the
+Makefile. On Arch/CachyOS, install the packaged tools with:
+
+```bash
+sudo pacman -S shellcheck shfmt yamllint actionlint
+go install github.com/checkmake/checkmake/cmd/checkmake@v0.3.2
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+### Running CI locally with `act`
+
+The repository includes `.actrc` with the Ubuntu runner image mapping. Run
+the pull request workflow locally with:
+
+```bash
+act pull_request -W .github/workflows/ci.yml
+```
+
+Use `--dryrun` to inspect the planned jobs without running them:
+
+```bash
+act pull_request -W .github/workflows/ci.yml --dryrun
+```
+
+Do not execute the release workflow with `act` unless GitHub Release and Pages
+side effects are intentionally configured. Use `--dryrun` for that workflow.
+
 ## Configuration
 
 Go to **Dashboard > Plugins > Ignore Empty Items** to configure:

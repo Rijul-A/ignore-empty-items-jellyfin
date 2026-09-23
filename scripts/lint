@@ -26,13 +26,32 @@ while IFS= read -r file; do
         echo "$long_lines" | xargs echo
         FAILED=1
     fi
-done <<< "$FILES"
+done <<<"$FILES"
 
 echo "Running dotnet format verification..."
 if ! dotnet format "$PROJECT_DIR" --verify-no-changes; then
     echo "Error: Code style violations found. Run 'dotnet format' to fix them."
     FAILED=1
 fi
+if ! dotnet format "tests/Jellyfin.Plugin.IgnoreEmptyFolders.Tests" --verify-no-changes; then
+    echo "Error: Test code style violations found. Run 'dotnet format' to fix them."
+    FAILED=1
+fi
+
+echo "Running shell format checks..."
+shfmt -d scripts/lint
+
+echo "Running shellcheck..."
+shellcheck scripts/lint
+
+echo "Running YAML lint..."
+yamllint .github/workflows/*.yml
+
+echo "Running GitHub Actions lint..."
+actionlint .github/workflows/*.yml
+
+echo "Running Makefile lint..."
+checkmake Makefile
 
 if [ "$FAILED" -ne 0 ]; then
     exit 1

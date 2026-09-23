@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Install lint tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck yamllint
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.0
+          go install github.com/checkmake/checkmake/cmd/checkmake@v0.3.2
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run tests
+        run: make test
+
+      - name: Run lint checks
+        run: make lint
