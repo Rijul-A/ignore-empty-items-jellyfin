@@ -68,12 +68,21 @@ public class ContainerCleaner(
             {
                 if (container is Folder folder)
                 {
-                    var links = folder.LinkedChildren;
-                    if (links.Length == 0)
+                    if (!folder.LinkedChildrenLoaded)
                     {
-                        isEmpty = true;
+                        Logger.LogDebug(
+                            "Ignore Empty Items: Skipping {Type} " +
+                            "\"{Name}\" because linked children are " +
+                            "not loaded",
+                            typeName,
+                            container.Name);
+                        ReportProgress(progress, i + 1, total);
+                        continue;
                     }
-                    else
+
+                    var links = folder.LinkedChildren;
+                    isEmpty = links.Length == 0;
+                    if (!isEmpty)
                     {
                         var itemIds = links
                             .Where(l => l.ItemId.HasValue)
