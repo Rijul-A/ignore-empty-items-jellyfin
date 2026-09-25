@@ -118,7 +118,7 @@ jobs:
             repository.json
 
       - name: Upload pull request package
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ignore-empty-items-${{ steps.version.outputs.VERSION }}
