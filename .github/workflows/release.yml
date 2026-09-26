@@ -73,6 +73,8 @@ jobs:
           zip -r ../ignore-empty-items-${{ steps.version.outputs.VERSION }}.zip .
 
       - name: Generate repository manifest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           CHECKSUM=$(md5sum ignore-empty-items-${{ steps.version.outputs.VERSION }}.zip | cut -d' ' -f1)
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -106,6 +108,65 @@ jobs:
             }
           ]
           EOF
+          # Tag pointers remain unchanged; history comes from published release assets, not Pages.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            set -euo pipefail
+            manifest_dir=".release-manifests"
+            mkdir -p "$manifest_dir"
+            page=1
+            while :; do
+              releases=$(curl --fail --silent --show-error --location --retry 3 \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=${page}")
+              release_count=$(jq 'length' <<<"$releases")
+              if (( release_count == 0 )); then
+                break
+              fi
+
+              while IFS=$'\t' read -r release_id asset_url; do
+                [[ -n "$release_id" && -n "$asset_url" ]] || continue
+                curl --fail --silent --show-error --location --retry 3 \
+                  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                  -H "Accept: application/octet-stream" \
+                  "$asset_url" > "$manifest_dir/${release_id}.json"
+              done < <(
+                jq -r '
+                  .[]
+                  | select(.draft == false and .published_at != null)
+                  | . as $release
+                  | .assets[]?
+                  | select(.name == "repository.json")
+                  | [$release.id, .url]
+                  | @tsv
+                ' <<<"$releases"
+              )
+
+              if (( release_count < 100 )); then
+                break
+              fi
+              ((page += 1))
+            done
+
+            manifests=(repository.json)
+            for previous_manifest in "$manifest_dir"/*.json; do
+              [[ -f "$previous_manifest" ]] && manifests+=("$previous_manifest")
+            done
+            cat "${manifests[@]}" | jq -s '
+              . as $manifests
+              | ($manifests[0][0] // error("current repository manifest is empty")) as $plugin
+              | (reduce ($manifests[]? | .[]? | .versions[]?) as $version
+                  ({versions: [], seen: {}};
+                   if (.seen[$version.version] // false)
+                   then .
+                   else .seen[$version.version] = true
+                        | .versions += [$version]
+                   end
+                  )).versions as $versions
+              | [$plugin | .versions = $versions]
+            ' > repository.json.tmp
+            mv repository.json.tmp repository.json
+          fi
 
       - name: Upload release assets
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')

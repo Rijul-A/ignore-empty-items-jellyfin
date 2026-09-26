@@ -115,6 +115,34 @@ act pull_request -W .github/workflows/ci.yml --dryrun
 Do not execute the release workflow with `act` unless GitHub Release and Pages
 side effects are intentionally configured. Use `--dryrun` for that workflow.
 
+## Releasing
+
+The release workflow runs for tags matching `v*`. A tag names one exact
+commit; the workflow does not choose a newer commit or move an existing tag.
+Create a release tag from the intended commit:
+
+```bash
+git switch main
+git pull --ff-only
+git tag v0.0.3
+git push origin v0.0.3
+```
+
+The generated repository manifest keeps versions from currently published
+GitHub Releases. Deleting a release removes its version from future manifests;
+older releases are not restored from the Pages deployment.
+
+To move a mutable tag to a different commit, update the tag explicitly and
+force-push it:
+
+```bash
+git tag --force v0.0.3 <commit>
+git push --force origin refs/tags/v0.0.3
+```
+
+The release action updates the release for that tag; it does not retarget the
+tag itself.
+
 ## Configuration
 
 Go to **Dashboard > Plugins > Ignore Empty Items** to configure:
