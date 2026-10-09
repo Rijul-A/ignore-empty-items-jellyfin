@@ -65,6 +65,7 @@ public class LibraryCleanupManager(
                     config.PreviousHideTag,
                     string.Empty,
                     cancellationToken);
+                config.PreviousHideTag = string.Empty;
                 config.HideInsteadOfDeleteWasActive = false;
                 Plugin.Instance?.SaveConfiguration(config);
             }
