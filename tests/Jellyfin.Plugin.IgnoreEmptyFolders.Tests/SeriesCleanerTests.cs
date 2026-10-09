@@ -127,6 +127,71 @@ public sealed class SeriesCleanerTests
     }
 
     [Fact]
+    public async Task EpisodesWithSamePresentationKeyKeepBothSeries()
+    {
+        var first = NewSeries("First series");
+        var second = NewSeries("Second series");
+        var firstEpisode = NewEpisode(
+            first, null, "First episode", isVirtual: false
+        );
+        var secondEpisode = NewEpisode(
+            second, null, "Second episode", isVirtual: false
+        );
+        firstEpisode.PresentationUniqueKey = "shared-episode";
+        secondEpisode.PresentationUniqueKey = "shared-episode";
+        var library = CreateLibrary(
+            [first, second], [firstEpisode, secondEpisode], [],
+            simulateGrouping: true
+        );
+        var config = CreateConfig();
+        config.DeleteEmptySeasons = false;
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(),
+                It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AlternateEpisodeKeepsPhysicalSeriesAndSeason()
+    {
+        var series = NewSeries("Physical series");
+        var season = NewSeason(
+            series, "Season", "/library/physical-series/season"
+        );
+        var alternate = NewEpisode(
+            series, season, "Alternate", isVirtual: false
+        );
+        alternate.SetPrimaryVersionId(Guid.NewGuid());
+        alternate.SeriesId = Guid.NewGuid();
+        alternate.SeasonId = Guid.NewGuid();
+        var library = CreateLibrary(
+            [series], [alternate], [season],
+            simulateOwnedExclusion: true
+        );
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(),
+                It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task
         SeriesWithEmptyEpisodeSeriesIdAndValidParentChainIsPreserved()
     {
@@ -825,7 +890,9 @@ public sealed class SeriesCleanerTests
         IReadOnlyCollection<Series> series,
         IReadOnlyCollection<Episode> episodes,
         IReadOnlyCollection<Season> seasons,
-        IReadOnlyCollection<BaseItem>? graphItems = null)
+        IReadOnlyCollection<BaseItem>? graphItems = null,
+        bool simulateGrouping = false,
+        bool simulateOwnedExclusion = false)
     {
         var fileSystem = new Mock<MediaBrowser.Model.IO.IFileSystem>();
         fileSystem
@@ -845,11 +912,17 @@ public sealed class SeriesCleanerTests
                 {
                     Assert.Null(query.IsVirtualItem);
                     Assert.Null(query.IsMissing);
-                    return graphItems?.ToList() ??
+                    var physicalItems = graphItems ??
                         series.Cast<BaseItem>()
                             .Concat(episodes)
                             .Concat(seasons)
                             .ToList();
+                    return physicalItems
+                        .Where(item => !simulateOwnedExclusion ||
+                            query.IncludeOwnedItems ||
+                            item is not Episode episode ||
+                            episode.PrimaryVersionId is null)
+                        .ToList();
                 }
 
                 if (
@@ -869,10 +942,20 @@ public sealed class SeriesCleanerTests
                 {
                     Assert.Equal(false, query.IsVirtualItem);
                     Assert.Equal(false, query.IsMissing);
-                    return episodes
-                        .Where(e => !e.IsVirtualItem)
-                        .Cast<BaseItem>()
-                        .ToList();
+                    var physicalEpisodes = episodes
+                        .Where(e => !e.IsVirtualItem &&
+                            (!simulateOwnedExclusion ||
+                                query.IncludeOwnedItems ||
+                                e.PrimaryVersionId is null));
+                    if (simulateGrouping &&
+                        query.GroupByPresentationUniqueKey)
+                    {
+                        physicalEpisodes = physicalEpisodes
+                            .GroupBy(e => e.GetPresentationUniqueKey())
+                            .Select(group => group.First());
+                    }
+
+                    return physicalEpisodes.Cast<BaseItem>().ToList();
                 }
 
                 if (

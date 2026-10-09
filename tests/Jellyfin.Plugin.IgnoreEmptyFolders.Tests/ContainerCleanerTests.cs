@@ -799,6 +799,112 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
+    public async Task AlternateMovieKeepsPhysicalFolder()
+    {
+        var root = new Folder
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren = []
+        };
+        var alternate = new Movie
+        {
+            Id = Guid.NewGuid(),
+            ParentId = root.Id,
+            Path = "/media/alternate-version.mkv"
+        };
+        alternate.SetPrimaryVersionId(Guid.NewGuid());
+        var library = CreateLibrary([root], [root, alternate]);
+        library
+            .Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) =>
+            {
+                if (query.IncludeItemTypes.Length > 0)
+                {
+                    return [root];
+                }
+
+                return query.IncludeOwnedItems
+                    ? new List<BaseItem> { root, alternate }
+                    : new List<BaseItem> { root };
+            });
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task IndexedPhysicalMediaSkipsPersistedLinkLookups()
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = true;
+        var root = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Tags = [config.HideTag]
+        };
+        var nested = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = root.Id,
+            Tags = [config.HideTag]
+        };
+        var movie = new Movie
+        {
+            Id = Guid.NewGuid(),
+            ParentId = nested.Id,
+            Path = "/media/nested-physical-movie.mkv"
+        };
+        var unrelated = new Folder { Id = Guid.NewGuid() };
+        var links = new Mock<ILinkedChildrenService>();
+        links
+            .Setup(m => m.GetLinkedChildrenIds(root.Id, null))
+            .Returns([unrelated.Id]);
+        links
+            .Setup(m => m.GetLinkedChildrenIds(nested.Id, null))
+            .Returns([unrelated.Id]);
+        var library = CreateLibrary(
+            [root, nested], [root, nested, movie, unrelated]);
+
+        var previousLibraryManager = BaseItem.LibraryManager;
+        BaseItem.LibraryManager = library.Object;
+        int changedCount;
+        try
+        {
+            changedCount = await CreateCleaner(
+                library, links.Object).CleanAsync(
+                    config, null, CancellationToken.None);
+        }
+        finally
+        {
+            BaseItem.LibraryManager = previousLibraryManager;
+        }
+
+        Assert.Equal(2, changedCount);
+        Assert.DoesNotContain(config.HideTag, root.Tags);
+        Assert.DoesNotContain(config.HideTag, nested.Tags);
+        links.Verify(
+            m => m.GetLinkedChildrenIds(
+                It.IsAny<Guid>(), null),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
     public async Task OnlyReachableUnloadedFolderIsHydratedOnce()
     {
         var config = CreateConfig();

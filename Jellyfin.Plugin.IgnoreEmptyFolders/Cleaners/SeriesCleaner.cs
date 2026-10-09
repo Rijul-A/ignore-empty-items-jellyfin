@@ -32,6 +32,7 @@ public class SeriesCleaner(
             new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.Series],
+                GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
                 {
                     EnableImages = false
@@ -65,6 +66,8 @@ public class SeriesCleaner(
             var libraryItems = LibraryManager.GetItemList(
                 new InternalItemsQuery
                 {
+                    IncludeOwnedItems = true,
+                    GroupByPresentationUniqueKey = false,
                     DtoOptions = new DtoOptions(false)
                 });
 
@@ -93,6 +96,7 @@ public class SeriesCleaner(
                     new InternalItemsQuery
                     {
                         IncludeItemTypes = [BaseItemKind.Season],
+                        GroupByPresentationUniqueKey = false,
                         DtoOptions = new DtoOptions(false)
                     });
 
@@ -130,6 +134,8 @@ public class SeriesCleaner(
                 new InternalItemsQuery
                 {
                     IncludeItemTypes = [BaseItemKind.Episode],
+                    IncludeOwnedItems = true,
+                    GroupByPresentationUniqueKey = false,
                     IsVirtualItem = false,
                     IsMissing = false,
                     DtoOptions = new DtoOptions(false)

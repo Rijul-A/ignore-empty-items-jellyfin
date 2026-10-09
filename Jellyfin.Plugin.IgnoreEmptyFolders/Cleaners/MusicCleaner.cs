@@ -58,6 +58,7 @@ public class MusicCleaner(
             new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.MusicArtist],
+                GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -76,6 +77,7 @@ public class MusicCleaner(
                 {
                     ParentId = artist.Id,
                     IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                    IncludeOwnedItems = true,
                     IsVirtualItem = false,
                     IsMissing = false,
                     Limit = 0,
@@ -119,6 +121,7 @@ public class MusicCleaner(
             new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -137,6 +140,7 @@ public class MusicCleaner(
                 {
                     ParentId = album.Id,
                     IncludeItemTypes = [BaseItemKind.Audio],
+                    IncludeOwnedItems = true,
                     IsVirtualItem = false,
                     IsMissing = false,
                     Limit = 0,

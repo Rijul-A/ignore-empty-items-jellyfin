@@ -289,6 +289,67 @@ public sealed class ConfigurationMigrationTests
     }
 
     [Fact]
+    public async Task OwnedRealMovieLosesStaleHideTag()
+    {
+        const string hideTag = "hidden";
+        var movie = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/alternate-version.mkv",
+            Tags = [hideTag]
+        };
+        movie.SetPrimaryVersionId(Guid.NewGuid());
+        var library = new Mock<ILibraryManager>();
+        library
+            .Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) =>
+                query.IncludeOwnedItems &&
+                query.IncludeItemTypes.Contains(
+                    BaseItemKind.Movie) &&
+                query.Tags.Contains(hideTag) &&
+                query.IsVirtualItem == false &&
+                query.IsMissing == false &&
+                !query.GroupByPresentationUniqueKey
+                    ? [movie]
+                    : []);
+        library
+            .Setup(m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var cleaner = new MovieCleaner(
+            library.Object,
+            NullLogger<MovieCleaner>.Instance);
+
+        var changed = await cleaner.CleanAsync(
+            new PluginConfiguration
+            {
+                HideInsteadOfDelete = true,
+                HideTag = hideTag
+            },
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, changed);
+        Assert.Empty(movie.Tags);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                movie,
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(),
+                It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ReplacementWithInvalidTagSkipsMovieCleanup()
     {
         var configuration = new PluginConfiguration

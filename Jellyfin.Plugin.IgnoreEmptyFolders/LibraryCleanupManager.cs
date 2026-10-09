@@ -363,6 +363,8 @@ public class LibraryCleanupManager(
             new InternalItemsQuery
             {
                 Tags = [oldTag],
+                IncludeOwnedItems = true,
+                GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
             });
 

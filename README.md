@@ -203,18 +203,30 @@ resolve protects its metadata-indicated series against empty-series
 cleanup. If that ID is missing or does not identify an indexed series,
 empty-series cleanup is skipped for every series in that run.
 
+Jellyfin 12 excludes owned items such as alternate versions from
+ordinary library queries. Physical folder and episode indexes,
+movie cleanup, music existence counts, and hide-tag migration
+explicitly include them so an alternate file cannot make its
+parent appear empty or remain hidden after recovery. Jellyfin
+bypasses presentation-key grouping for the plugin's userless
+queries; cleanup queries still explicitly disable grouping to
+retain distinct physical items if their context changes.
+
 Unloaded ordinary folders are hydrated from persisted linked-child IDs
 only when reached from a selected container through physical or linked
-children. Hydration is attempted once per reached folder per cleanup,
-not for every folder in the library snapshot. Jellyfin 12 offers only
+children and indexed physical descendants have not already established
+real media. Physical edges are checked before persisted links; finding
+media stops traversal without unnecessary linked-child lookups.
+Hydration is attempted once per reached folder per cleanup, not for
+every folder in the library snapshot. Jellyfin 12 offers only
 per-folder linked-child lookup, not a bulk API; selecting all folders
-can still require one lookup for each unloaded folder. BoxSets and
-Playlists remain unknown while unloaded. If hydration fails, or a
-linked-child identity is missing, unresolved, or cyclic, the
-relationship is treated as unknown. Unknown containers are preserved;
-only confirmed-empty items are hidden or removed. Media reachable
-through a cycle can restore previously hidden containers regardless
-of which container was checked first.
+can still require one lookup for each unloaded folder without physical
+media. BoxSets and Playlists remain unknown while unloaded. If
+hydration fails, or a linked-child identity is missing, unresolved,
+or cyclic, the relationship is treated as unknown. Unknown containers
+are preserved; only confirmed-empty items are hidden or removed.
+Media reachable through a cycle can restore previously hidden
+containers regardless of which container was checked first.
 
 For loaded linked children, an indexed non-empty `ItemId` wins.
 Unlike Jellyfin, if that ID is absent from the bulk snapshot, the

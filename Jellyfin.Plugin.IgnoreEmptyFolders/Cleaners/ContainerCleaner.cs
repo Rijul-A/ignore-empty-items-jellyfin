@@ -59,6 +59,7 @@ public class ContainerCleaner(
             new InternalItemsQuery
             {
                 IncludeItemTypes = [.. containerTypes],
+                GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -75,6 +76,8 @@ public class ContainerCleaner(
         var libraryItems = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
+                IncludeOwnedItems = true,
+                GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -385,6 +388,13 @@ public class ContainerCleaner(
                 continue;
             }
 
+            if (frame.State == EvaluationState.RealMedia)
+            {
+                CompleteFrame(
+                    frames, active, evaluations, unknownEvaluations);
+                continue;
+            }
+
             if (!itemsById.TryGetValue(frame.Key.ItemId, out var item))
             {
                 frame.State = EvaluationState.Unknown;
@@ -393,17 +403,21 @@ public class ContainerCleaner(
                 continue;
             }
 
-            if (frame.NextEdgeIndex == 0)
+            if (frame.NextEdgeIndex == 0 && IsRealMedia(item))
             {
-                if (IsRealMedia(item))
-                {
-                    frame.State = EvaluationState.RealMedia;
-                    CompleteFrame(
-                        frames, active, evaluations,
-                        unknownEvaluations);
-                    continue;
-                }
+                frame.State = EvaluationState.RealMedia;
+                CompleteFrame(
+                    frames, active, evaluations, unknownEvaluations);
+                continue;
+            }
 
+            childrenByParentId.TryGetValue(
+                frame.Key.ItemId, out var children);
+            var physicalCount = children?.Count ?? 0;
+            if (frame.NextEdgeIndex >= physicalCount &&
+                !frame.LinkedChildrenReady)
+            {
+                frame.LinkedChildrenReady = true;
                 if (item is Folder folder &&
                     !folder.LinkedChildrenLoaded)
                 {
@@ -455,16 +469,11 @@ public class ContainerCleaner(
                     }
                 }
             }
-            var edgeCount =
-                (childrenByParentId.TryGetValue(
-                    frame.Key.ItemId, out var children)
-                    ? children.Count
-                    : 0) +
-                (linkedChildrenByParentId.TryGetValue(
-                    frame.Key.ItemId, out var linkedChildren)
-                    ? linkedChildren.Count
-                    : 0);
-            if (frame.NextEdgeIndex >= edgeCount)
+
+            linkedChildrenByParentId.TryGetValue(
+                frame.Key.ItemId, out var linkedChildren);
+            if (frame.NextEdgeIndex >=
+                physicalCount + (linkedChildren?.Count ?? 0))
             {
                 CompleteFrame(
                     frames, active, evaluations, unknownEvaluations);
@@ -481,7 +490,7 @@ public class ContainerCleaner(
             else
             {
                 isLinkedEdge = true;
-                var linkedIndex = edgeIndex - (children?.Count ?? 0);
+                var linkedIndex = edgeIndex - physicalCount;
                 var linkedReference = linkedChildren![linkedIndex];
                 if (linkedReference.ChildId is not Guid resolvedChildId)
                 {
@@ -591,6 +600,11 @@ public class ContainerCleaner(
         public EvaluationKey Key { get; } = key;
 
         public int NextEdgeIndex
+        {
+            get; set;
+        }
+
+        public bool LinkedChildrenReady
         {
             get; set;
         }

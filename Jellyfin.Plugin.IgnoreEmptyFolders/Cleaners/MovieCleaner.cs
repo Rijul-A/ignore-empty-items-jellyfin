@@ -41,6 +41,8 @@ public class MovieCleaner(
                     Tags = [config.HideTag],
                     IsVirtualItem = false,
                     IsMissing = false,
+                    GroupByPresentationUniqueKey = false,
+                    IncludeOwnedItems = true,
                     DtoOptions = new DtoOptions(false)
                 });
 
@@ -63,6 +65,8 @@ public class MovieCleaner(
             {
                 IncludeItemTypes = [BaseItemKind.Movie],
                 IsVirtualItem = true,
+                GroupByPresentationUniqueKey = false,
+                IncludeOwnedItems = true,
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -71,6 +75,8 @@ public class MovieCleaner(
             {
                 IncludeItemTypes = [BaseItemKind.Movie],
                 IsMissing = true,
+                GroupByPresentationUniqueKey = false,
+                IncludeOwnedItems = true,
                 DtoOptions = new DtoOptions(false)
             });
 
