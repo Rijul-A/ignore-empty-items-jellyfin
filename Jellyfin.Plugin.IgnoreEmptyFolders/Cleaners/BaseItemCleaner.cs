@@ -102,6 +102,8 @@ public abstract class BaseItemCleaner(
         CancellationToken cancellationToken
     )
     {
+        if (string.IsNullOrWhiteSpace(tag))
+            return false;
         if (HasTag(item, tag))
             return false;
         var originalTags = item.Tags;

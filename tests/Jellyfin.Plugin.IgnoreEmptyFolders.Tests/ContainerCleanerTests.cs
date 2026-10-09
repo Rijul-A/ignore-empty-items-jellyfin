@@ -501,6 +501,92 @@ public sealed class ContainerCleanerTests
             Times.Never);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StaleItemIdDoesNotRedirectToEmptyLegacyPath(
+        bool hideInsteadOfDelete)
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = hideInsteadOfDelete;
+        var emptyFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/empty-legacy-linked-folder",
+            LinkedChildren = []
+        };
+        var boxSet = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(
+                    itemId: Guid.NewGuid(),
+                    path: emptyFolder.Path,
+                    libraryItemId: emptyFolder.Id.ToString("N"))
+            ],
+            Tags = [config.HideTag]
+        };
+        var library = CreateLibrary(
+            [boxSet], [boxSet, emptyFolder]);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        Assert.Contains(config.HideTag, boxSet.Tags);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                boxSet,
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task EmptyItemIdUsesLegacyPathToRestoreHiddenBoxSet()
+    {
+        var config = CreateConfig();
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/empty-id-linked-movie.mkv"
+        };
+        var boxSet = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(
+                    itemId: Guid.Empty, path: media.Path)
+            ],
+            Tags = [config.HideTag]
+        };
+        var library = CreateLibrary([boxSet], [boxSet, media]);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(1, changedCount);
+        Assert.DoesNotContain(config.HideTag, boxSet.Tags);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                boxSet,
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task
         LinkedChildPathTakesPrecedenceOverLegacyLibraryItemId()
@@ -1027,9 +1113,15 @@ public sealed class ContainerCleanerTests
 #pragma warning disable CS0618
     private static LinkedChild CreateLegacyLinkedChild(
         string? path = null,
-        string? libraryItemId = null)
+        string? libraryItemId = null,
+        Guid? itemId = null)
     {
         var linkedChild = new LinkedChild();
+        if (itemId is Guid id)
+        {
+            linkedChild.ItemId = id;
+        }
+
         if (path is not null)
         {
             linkedChild.Path = path;

@@ -306,9 +306,10 @@ public class ContainerCleaner(
     {
         if (linkedChild.ItemId is Guid itemId && itemId != Guid.Empty)
         {
-            // Preserve the established behavior for a non-empty but
-            // unresolved ItemId: legacy fields must not
-            // silently redirect it.
+            // Unlike Jellyfin's legacy fallback, a non-empty ItemId
+            // absent from this snapshot stays unknown: stale Path or
+            // LibraryItemId data must not redirect the link and risk
+            // deleting its containing collection.
             return itemsById.ContainsKey(itemId) ? itemId : null;
         }
 

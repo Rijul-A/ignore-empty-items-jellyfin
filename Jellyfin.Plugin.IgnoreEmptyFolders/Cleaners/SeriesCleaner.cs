@@ -47,37 +47,36 @@ public class SeriesCleaner(
 
         Dictionary<Guid, int> episodeCountsBySeries = [];
         Dictionary<Guid, int> episodeCountsBySeason = [];
+        HashSet<Guid> uncertainSeriesIds = [];
+        var hasUnattributedEpisode = false;
+        Dictionary<Guid, BaseItem> itemsById = [];
+        HashSet<Guid> seriesIds = [];
+        Dictionary<Guid, Guid?> owningSeriesByParentId = [];
         if (config.DeleteEmptyShows || config.DeleteEmptySeasons)
         {
-            // A series ownership index requires the physical parent
-            // graph.
-            // Episode.SeriesId is metadata and may be empty or stale.
-            Dictionary<Guid, BaseItem> itemsById = [];
-            HashSet<Guid> seriesIds = [];
-            if (config.DeleteEmptyShows)
+            // Metadata IDs can be stale. Index the physical parent
+            // graph for both series and season ownership.
+            var libraryItems = LibraryManager.GetItemList(
+                new InternalItemsQuery
+                {
+                    DtoOptions = new DtoOptions(false)
+                });
+
+            foreach (var item in libraryItems)
             {
-                var libraryItems = LibraryManager.GetItemList(
-                    new InternalItemsQuery
-                    {
-                        DtoOptions = new DtoOptions(false)
-                    });
-
-                foreach (var item in libraryItems)
+                itemsById.TryAdd(item.Id, item);
+                if (item is Series series)
                 {
-                    itemsById.TryAdd(item.Id, item);
-                    if (item is Series series)
-                    {
-                        seriesIds.Add(series.Id);
-                    }
+                    seriesIds.Add(series.Id);
                 }
+            }
 
-                foreach (var item in seriesList)
+            foreach (var item in seriesList)
+            {
+                if (item is Series series)
                 {
-                    if (item is Series series)
-                    {
-                        seriesIds.Add(series.Id);
-                        itemsById[series.Id] = series;
-                    }
+                    seriesIds.Add(series.Id);
+                    itemsById[series.Id] = series;
                 }
             }
 
@@ -91,7 +90,6 @@ public class SeriesCleaner(
                 });
 
             var episodeIds = new HashSet<Guid>();
-            var owningSeriesByParentId = new Dictionary<Guid, Guid?>();
             foreach (var episode in episodes.OfType<Episode>())
             {
                 if (!episodeIds.Add(episode.Id))
@@ -113,9 +111,20 @@ public class SeriesCleaner(
                                 seriesId.Value
                             ) + 1;
                     }
+                    else if (episode.SeriesId != Guid.Empty &&
+                        seriesIds.Contains(episode.SeriesId))
+                    {
+                        uncertainSeriesIds.Add(episode.SeriesId);
+                    }
+                    else
+                    {
+                        // An unknown owner may belong to any series.
+                        hasUnattributedEpisode = true;
+                    }
                 }
 
-                if (episode.ParentId != Guid.Empty)
+                if (config.DeleteEmptySeasons &&
+                    episode.ParentId != Guid.Empty)
                 {
                     episodeCountsBySeason[episode.ParentId] =
                         episodeCountsBySeason.GetValueOrDefault(
@@ -143,20 +152,23 @@ public class SeriesCleaner(
                     continue;
                 }
 
-                var seriesId = season.SeriesId != Guid.Empty
-                    ? season.SeriesId
-                    : season.ParentId;
-                if (seriesId == Guid.Empty)
+                var seriesId = FindOwningSeriesId(
+                    season.ParentId,
+                    itemsById,
+                    seriesIds,
+                    owningSeriesByParentId);
+                if (!seriesId.HasValue)
                 {
+                    // Do not assign unresolved seasons by metadata.
                     continue;
                 }
 
                 if (!seasonsBySeries.TryGetValue(
-                    seriesId, out var seriesSeasons
+                    seriesId.Value, out var seriesSeasons
                 ))
                 {
                     seriesSeasons = [];
-                    seasonsBySeries[seriesId] = seriesSeasons;
+                    seasonsBySeries[seriesId.Value] = seriesSeasons;
                 }
 
                 seriesSeasons.Add(season);
@@ -177,8 +189,11 @@ public class SeriesCleaner(
             {
                 var episodeCount =
                     episodeCountsBySeries.GetValueOrDefault(series.Id);
+                var ownershipUncertain =
+                    hasUnattributedEpisode ||
+                    uncertainSeriesIds.Contains(series.Id);
 
-                if (episodeCount == 0)
+                if (episodeCount == 0 && !ownershipUncertain)
                 {
                     var changed = await HideOrDeleteItemAsync(
                         series,
@@ -195,7 +210,8 @@ public class SeriesCleaner(
                         continue;
                     }
                 }
-                else if (config.HideInsteadOfDelete &&
+                else if (episodeCount > 0 &&
+                    config.HideInsteadOfDelete &&
                     await UntagItemAsync(
                         series,
                         config.HideTag,
@@ -234,9 +250,8 @@ public class SeriesCleaner(
         return changedCount;
     }
 
-    // Return null for missing or cyclic parent
-    // chains; unknown ownership is intentionally
-    // not attributed using Episode.SeriesId.
+    // Return null for missing or cyclic parent chains. Metadata
+    // only protects candidates when physical ownership is unknown.
     private static Guid? FindOwningSeriesId(
         Guid parentId,
         IReadOnlyDictionary<Guid, BaseItem> itemsById,

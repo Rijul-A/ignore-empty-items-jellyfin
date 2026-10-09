@@ -130,6 +130,8 @@ public class LibraryCleanupManager(
                 if (await MigrateTagAsync(
                         sourceTag,
                         targetTag,
+                        plugin,
+                        config,
                         cancellationToken))
                 {
                     state.LastAppliedTag = targetTag;
@@ -167,10 +169,20 @@ public class LibraryCleanupManager(
                 continue;
             }
 
-            config.PreviousHideTag = targetTag;
-            config.HideInsteadOfDeleteWasActive =
-                !string.IsNullOrEmpty(targetTag);
-            plugin.SaveConfiguration(config);
+            var wasChanged =
+                !string.Equals(
+                    config.PreviousHideTag,
+                    targetTag,
+                    StringComparison.Ordinal) ||
+                config.HideInsteadOfDeleteWasActive !=
+                    !string.IsNullOrEmpty(targetTag);
+            if (wasChanged)
+            {
+                config.PreviousHideTag = targetTag;
+                config.HideInsteadOfDeleteWasActive =
+                    !string.IsNullOrEmpty(targetTag);
+                plugin.SaveConfiguration(config);
+            }
             state.LastAppliedTag = targetTag;
             state.KnownTags.Clear();
             return;
@@ -193,13 +205,24 @@ public class LibraryCleanupManager(
                 return;
             }
 
+            if (config.HideInsteadOfDelete &&
+                string.IsNullOrWhiteSpace(config.HideTag))
+            {
+                _logger.LogWarning(
+                    "Ignore Empty Items: HideTag is empty, " +
+                    "skipping hide mode processing");
+                return;
+            }
+
             await ReconcileConfigurationAsync(cancellationToken);
 
             // Reconciliation may observe and replace the plugin
             // configuration. Do not run cleaners with the object
             // that was read before it.
             config = Plugin.Instance?.Configuration;
-            if (config == null)
+            if (config == null ||
+                (config.HideInsteadOfDelete &&
+                string.IsNullOrWhiteSpace(config.HideTag)))
             {
                 return;
             }
@@ -297,6 +320,8 @@ public class LibraryCleanupManager(
     private async Task<bool> MigrateTagAsync(
         string oldTag,
         string newTag,
+        Plugin plugin,
+        Configuration.PluginConfiguration config,
         CancellationToken cancellationToken)
     {
         if (oldTag.Equals(newTag, StringComparison.OrdinalIgnoreCase))
@@ -326,10 +351,21 @@ public class LibraryCleanupManager(
                 DtoOptions = new DtoOptions(false)
             });
 
+        if (!ReferenceEquals(config, plugin.Configuration) ||
+            !IsCurrentConfiguration(plugin, newTag))
+        {
+            return false;
+        }
 
         foreach (var item in taggedItems)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, newTag))
+            {
+                return false;
+            }
+
             var tags = item.Tags
                 .Where(t => !t.Equals(
                     oldTag, StringComparison.OrdinalIgnoreCase));
@@ -353,6 +389,11 @@ public class LibraryCleanupManager(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (!ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, newTag))
+            {
+                return false;
+            }
             var dto = userManager.GetUserDto(user);
             var policy = dto.Policy!;
 

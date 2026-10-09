@@ -177,23 +177,42 @@ The plugin provides two mechanisms:
    Can also be triggered manually.
 
 Both mechanisms share the same logic and respect the plugin's
-configuration. Saving configuration changes also synchronizes the hide
-tag for existing users and newly created users.
+configuration. Saving configuration changes synchronizes the hide
+tag for existing and newly created users. Cleanup saves the plugin
+configuration only when its recorded hide-tag migration state
+changes, not on every reconciliation.
 
 Cleanup execution and metadata updates are awaited asynchronously, while
 cleaner phases remain sequential for predictable progress reporting.
+
+If hide mode is enabled with a blank or whitespace-only hide tag,
+cleanup skips all cleaners, including deletion, until a valid tag
+is configured.
 
 ### How emptiness is determined
 
 Items are considered empty when they contain zero relevant media or child
 items that are non-virtual/non-missing media with an actual path. TV episode
-ownership follows the indexed parent hierarchy rather than trusting a stale
-or missing `SeriesId`.
+and season ownership follows the indexed physical parent hierarchy,
+not stale `SeriesId` metadata. An episode whose parent chain cannot
+resolve protects its metadata-indicated series against empty-series
+cleanup. If that ID is missing or does not identify an indexed series,
+empty-series cleanup is skipped for every series in that run.
 
 Unloaded linked-child collections are hydrated from persisted link IDs when
 available. If hydration fails, or a linked-child identity is missing,
 unresolved, or cyclic, the relationship is treated as unknown. Unknown
 containers are preserved; only confirmed-empty items are hidden or removed.
+
+For loaded linked children, an indexed non-empty `ItemId` wins.
+Unlike Jellyfin, if that ID is absent from the bulk snapshot, the
+plugin does not redirect the link through possibly stale legacy
+`Path` or `LibraryItemId` fields. An empty or absent `ItemId` can
+resolve through a legacy path, then a legacy library ID only when
+no path is supplied; an unresolved path stays unknown. This
+conservative choice can leave a previously hidden collection
+hidden until its linked identity can be resolved, rather than
+accidentally deleting it or changing its visibility on stale data.
 
 In hide mode, empty items receive the hide tag and are hidden from users
 whose policies block that tag. In delete mode, the Jellyfin database
@@ -212,10 +231,10 @@ user visibility.
   post-scan task hides or removes them.
 - In delete mode, empty items may reappear on the next scan because the
   files and folders remain on disk.
-- In hide mode, tagged items remain hidden until they contain media or
-  the hide tag is removed. If the plugin is uninstalled without first
-  disabling hide mode, the tags and user policies must be cleaned up
-  manually.
+- In hide mode, tagged items remain hidden until they are confirmed
+  to contain media (including through linked identities) or the hide
+  tag is removed. If the plugin is uninstalled without first disabling
+  hide mode, tags and user policies must be cleaned up manually.
 
 ## Uninstalling (hide mode)
 
