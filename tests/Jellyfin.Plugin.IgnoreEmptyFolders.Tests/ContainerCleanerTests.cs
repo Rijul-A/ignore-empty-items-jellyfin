@@ -19,20 +19,20 @@ public sealed class ContainerCleanerTests
         {
             Id = Guid.NewGuid()
         };
-        var library = CreateLibrary((playlist, 0));
-        var cleaner = CreateCleaner(library);
-        var config = CreateConfig();
+        var library = CreateLibrary([playlist], [playlist]);
 
-        var removed = cleaner.Clean(
-            config,
+        var removed = CreateCleaner(library).Clean(
+            CreateConfig(),
             null,
             CancellationToken.None);
 
         Assert.Equal(0, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.DeleteItem(
-                It.IsAny<BaseItem>(),
-                It.IsAny<DeleteOptions>()),
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
+            ),
             Times.Never);
         library.Verify(
             m => m.UpdateItemAsync(
@@ -51,17 +51,17 @@ public sealed class ContainerCleanerTests
             Id = Guid.NewGuid(),
             LinkedChildren = []
         };
-        var library = CreateLibrary((playlist, 0));
-        var cleaner = CreateCleaner(library);
+        var library = CreateLibrary([playlist], [playlist]);
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = cleaner.Clean(
-            config,
-            null,
-            CancellationToken.None);
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
 
         Assert.Equal(1, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.DeleteItem(
                 playlist,
@@ -82,27 +82,24 @@ public sealed class ContainerCleanerTests
             Id = Guid.NewGuid(),
             LinkedChildren =
             [
-                new LinkedChild
-                {
-                    ItemId = media.Id
-                }
+                new LinkedChild { ItemId = media.Id }
             ]
         };
-        var library = CreateLibrary((playlist, 1));
-        var cleaner = CreateCleaner(library);
+        var library = CreateLibrary([playlist], [playlist, media]);
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = cleaner.Clean(
-            config,
-            null,
-            CancellationToken.None);
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
 
         Assert.Equal(0, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.DeleteItem(
-                It.IsAny<BaseItem>(),
-                It.IsAny<DeleteOptions>()),
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
+            ),
             Times.Never);
     }
 
@@ -114,17 +111,18 @@ public sealed class ContainerCleanerTests
             Id = Guid.NewGuid(),
             LinkedChildren = []
         };
-        var library = CreateLibrary((boxSet, 0));
-        var cleaner = CreateCleaner(library);
-        var config = CreateConfig();
 
-        var removed = cleaner.Clean(
-            config,
+        var library = CreateLibrary([boxSet], [boxSet]);
+
+        var removed = CreateCleaner(library).Clean(
+            CreateConfig(),
             null,
             CancellationToken.None);
 
         Assert.Equal(1, removed);
-        Assert.Contains(config.HideTag, boxSet.Tags);
+        Assert.Contains(CreateConfig().HideTag, boxSet.Tags);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.UpdateItemAsync(
                 boxSet,
@@ -147,61 +145,92 @@ public sealed class ContainerCleanerTests
             Id = Guid.NewGuid(),
             LinkedChildren =
             [
-                new LinkedChild
-                {
-                    ItemId = media.Id
-                }
+                new LinkedChild { ItemId = media.Id }
             ]
         };
-        var library = CreateLibrary((boxSet, 1));
-        var cleaner = CreateCleaner(library);
+        var library = CreateLibrary([boxSet], [boxSet, media]);
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = cleaner.Clean(
-            config,
-            null,
-            CancellationToken.None);
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
 
         Assert.Equal(0, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.DeleteItem(
-                It.IsAny<BaseItem>(),
-                It.IsAny<DeleteOptions>()),
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
+            ),
+            Times.Never);
+    }
+    [Fact]
+    public void PlaylistWithNestedLinkedMediaIsNotDeleted()
+    {
+        var linkedFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Linked folder"
+        };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Nested linked movie",
+            ParentId = linkedFolder.Id
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = linkedFolder.Id }
+            ]
+        };
+        var library = CreateLibrary(
+            [playlist], [playlist, linkedFolder, media]
+        );
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(0, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
+            ),
             Times.Never);
     }
 
     [Fact]
     public void NestedEmptyFoldersAreDeleted()
     {
-        var folder = new Folder
+        var root = new Folder { Id = Guid.NewGuid(), Name = "Root" };
+        var nested = new Folder
         {
             Id = Guid.NewGuid(),
-            Name = "Root",
-            Children =
-            [
-                new Folder
-                {
-                    Id = Guid.NewGuid(),
-                    Name = "Nested empty folder",
-                    Children = []
-                }
-            ]
+            Name = "Nested empty folder",
+            ParentId = root.Id
         };
-        var library = CreateLibrary((folder, 0));
-        var cleaner = CreateCleaner(library);
+        var library = CreateLibrary([root], [root, nested]);
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = cleaner.Clean(
-            config,
-            null,
-            CancellationToken.None);
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
 
         Assert.Equal(1, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.DeleteItem(
-                folder,
+                root,
                 It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
             Times.Once);
     }
@@ -209,177 +238,163 @@ public sealed class ContainerCleanerTests
     [Fact]
     public void MetadataOnlyFoldersAreDeleted()
     {
-        var folder = new Folder
+        var root = new Folder
         {
             Id = Guid.NewGuid(),
-            Name = "Metadata-only root",
-            Children =
-            [
-                new Folder
-                {
-                    Id = Guid.NewGuid(),
-                    Name = "Metadata folder",
-                    Children = []
-                },
-                new Folder
-                {
-                    Id = Guid.NewGuid(),
-                    Name = "Another metadata folder",
-                    Children = []
-                }
-            ]
+            Name = "Metadata-only root"
         };
-        var library = CreateLibrary((folder, 0));
-        var cleaner = CreateCleaner(library);
+        var first = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Metadata folder",
+            ParentId = root.Id
+        };
+        var second = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Another metadata folder",
+            ParentId = root.Id
+        };
+        var library = CreateLibrary([root], [root, first, second]);
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = cleaner.Clean(
-            config,
-            null,
-            CancellationToken.None);
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
 
         Assert.Equal(1, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
-            m => m.DeleteItem(
-                folder,
-                It.IsAny<DeleteOptions>()),
+            m => m.DeleteItem(root, It.IsAny<DeleteOptions>()),
             Times.Once);
     }
 
     [Fact]
     public void DeeplyNestedRealMediaPreservesContainingFolder()
     {
-        var folder = new Folder
+        var root = new Folder
         {
             Id = Guid.NewGuid(),
-            Name = "Media root",
-            Children =
-            [
-                new Folder
-                {
-                    Id = Guid.NewGuid(),
-                    Name = "Nested folder",
-                    Children =
-                    [
-                        new Folder
-                        {
-                            Id = Guid.NewGuid(),
-                            Name = "Deeply nested folder",
-                            Children =
-                            [
-                                new Movie
-                                {
-                                    Id = Guid.NewGuid(),
-                                    Name = "Real movie",
-                                    IsVirtualItem = false,
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ]
+            Name = "Media root"
         };
-        var library = CreateLibrary((folder, 1));
-        var cleaner = CreateCleaner(library);
+        var nested = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Nested folder",
+            ParentId = root.Id
+        };
+        var deep = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Deeply nested folder",
+            ParentId = nested.Id
+        };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Real movie",
+            ParentId = deep.Id
+        };
+        var library = CreateLibrary(
+            [root], [root, nested, deep, media]
+        );
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = cleaner.Clean(
-            config,
-            null,
-            CancellationToken.None);
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
 
         Assert.Equal(0, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.DeleteItem(
-                It.IsAny<BaseItem>(),
-                It.IsAny<DeleteOptions>()),
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
+            ),
             Times.Never);
     }
 
     [Fact]
     public void FolderWithOnlyVirtualMediaIsDeleted()
     {
-        var folder = new Folder
+        var root = new Folder
         {
             Id = Guid.NewGuid(),
-            Name = "Virtual media root",
-            Children =
-            [
-                new Folder
-                {
-                    Id = Guid.NewGuid(),
-                    Children =
-                    [
-                        new Movie
-                        {
-                            Id = Guid.NewGuid(),
-                            Name = "Virtual movie",
-                            IsVirtualItem = true,
-                        }
-                    ]
-                }
-            ]
+            Name = "Virtual media root"
         };
-        var library = CreateLibrary((folder, 0));
-        var cleaner = CreateCleaner(library);
+        var nested = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = root.Id
+        };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Virtual movie",
+            ParentId = nested.Id,
+            IsVirtualItem = true
+        };
+        var library = CreateLibrary([root], [root, nested, media]);
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = cleaner.Clean(
-            config,
-            null,
-            CancellationToken.None);
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
 
         Assert.Equal(1, removed);
-        library.Verify(
-            m => m.DeleteItem(
-                folder,
-                It.IsAny<DeleteOptions>()),
-            Times.Once);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(m => m.DeleteItem(
+            root,
+            It.IsAny<DeleteOptions>()),
+            Times.Once
+        );
     }
 
     [Fact]
     public void FolderWithOnlyMissingMediaIsDeleted()
     {
-        var folder = new Folder
+        var root = new Folder
         {
             Id = Guid.NewGuid(),
-            Name = "Missing media root",
-            Children =
-            [
-                new Folder
-                {
-                    Id = Guid.NewGuid(),
-                    Children =
-                    [
-                        new Episode
-                        {
-                            Id = Guid.NewGuid(),
-                            Name = "Missing episode",
-                            IsVirtualItem = true
-                        }
-                    ]
-                }
-            ]
+            Name = "Missing media root"
         };
-        var library = CreateLibrary((folder, 0));
-        var cleaner = CreateCleaner(library);
+        var nested = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = root.Id
+        };
+        var missingEpisode = new Episode
+        {
+            Id = Guid.NewGuid(),
+            Name = "Missing episode",
+            ParentId = nested.Id,
+            IsVirtualItem = true
+        };
+        var library = CreateLibrary(
+            [root], [root, nested, missingEpisode]
+        );
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = cleaner.Clean(
-            config,
-            null,
-            CancellationToken.None);
+        var removed = CreateCleaner(library).Clean(
+            config, null, CancellationToken.None
+        );
 
         Assert.Equal(1, removed);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.DeleteItem(
-                folder,
-                It.IsAny<DeleteOptions>()),
-            Times.Once);
+                root,
+                It.IsAny<DeleteOptions>()
+                ),
+            Times.Once
+        );
     }
 
     private static PluginConfiguration CreateConfig()
@@ -394,31 +409,30 @@ public sealed class ContainerCleanerTests
     }
 
     private static Mock<ILibraryManager> CreateLibrary(
-        params (BaseItem Item, int RealMediaCount)[] scenarios)
+        IReadOnlyCollection<BaseItem> containers,
+        IReadOnlyCollection<BaseItem> graph)
     {
         var library = new Mock<ILibraryManager>();
-        var scenariosForQuery = scenarios;
-
         library
             .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
-            .Returns(
-                scenarios.Select(scenario => scenario.Item).ToList()
-            );
-        library
-            .Setup(m => m.GetCount(It.IsAny<InternalItemsQuery>()))
             .Returns((InternalItemsQuery query) =>
             {
-                Assert.True(query.Recursive);
-                Assert.Equal(false, query.IsFolder);
-                Assert.Equal(false, query.IsVirtualItem);
-                Assert.Equal(false, query.IsMissing);
-                Assert.Equal(0, query.Limit);
-                var scenario = scenariosForQuery.FirstOrDefault(
-                    candidate => candidate.Item.Id == query.ParentId);
-                Assert.NotNull(scenario.Item);
-                return scenario.RealMediaCount;
-            });
+                if (query.IncludeItemTypes.Length > 0)
+                {
+                    return containers.ToList();
+                }
 
+                Assert.Null(query.IsFolder);
+                Assert.Null(query.IsVirtualItem);
+                Assert.Null(query.IsMissing);
+                return graph.ToList();
+            });
+        library
+            .Setup(m => m.GetCount(It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery _) =>
+                throw new InvalidOperationException(
+                    "ContainerCleaner must not call GetCount."
+                ));
         library
             .Setup(m => m.UpdateItemAsync(
                 It.IsAny<BaseItem>(),
@@ -429,11 +443,39 @@ public sealed class ContainerCleanerTests
         return library;
     }
 
+    private static void AssertNoScalarCounts(
+        Mock<ILibraryManager> library
+    )
+    {
+        library.Verify(
+            m => m.GetCount(
+                It.IsAny<InternalItemsQuery>()
+            ),
+            Times.Never
+        );
+    }
+
+    private static void AssertBulkGraphLookupOnce(
+        Mock<ILibraryManager> library
+    )
+    {
+        library.Verify(
+            m => m.GetItemList(
+                It.Is<InternalItemsQuery>(
+                    q => q.IncludeItemTypes.Length == 0
+                )
+            ),
+            Times.Once
+        );
+    }
+
     private static ContainerCleaner CreateCleaner(
-        Mock<ILibraryManager> library)
+        Mock<ILibraryManager> library
+    )
     {
         return new ContainerCleaner(
             library.Object,
-            NullLogger<ContainerCleaner>.Instance);
+            NullLogger<ContainerCleaner>.Instance
+        );
     }
 }

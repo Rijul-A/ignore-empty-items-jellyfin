@@ -40,6 +40,90 @@ public class SeriesCleaner(
             "Ignore Empty Items: Checking {Count} series",
             seriesList.Count);
 
+        if (seriesList.Count == 0)
+        {
+            return 0;
+        }
+
+        // Discover eligible episodes once and index both TV ownership 
+        // levels.
+        Dictionary<Guid, int> episodeCountsBySeries = [];
+        Dictionary<Guid, int> episodeCountsBySeason = [];
+        if (config.DeleteEmptyShows || config.DeleteEmptySeasons)
+        {
+            var episodes = LibraryManager.GetItemList(
+                new InternalItemsQuery
+                {
+                    IncludeItemTypes = [BaseItemKind.Episode],
+                    IsVirtualItem = false,
+                    IsMissing = false,
+                    DtoOptions = new DtoOptions(false)
+                });
+
+            var episodeIds = new HashSet<Guid>();
+            foreach (var episode in episodes.OfType<Episode>())
+            {
+                if (!episodeIds.Add(episode.Id))
+                {
+                    continue;
+                }
+
+                if (episode.SeriesId != Guid.Empty)
+                {
+                    episodeCountsBySeries[episode.SeriesId] =
+                        episodeCountsBySeries.GetValueOrDefault(
+                            episode.SeriesId
+                        ) + 1;
+                }
+
+                if (episode.ParentId != Guid.Empty)
+                {
+                    episodeCountsBySeason[episode.ParentId] =
+                        episodeCountsBySeason.GetValueOrDefault(
+                            episode.ParentId
+                        ) + 1;
+                }
+            }
+        }
+
+        Dictionary<Guid, List<Season>> seasonsBySeries = [];
+        if (config.DeleteEmptySeasons)
+        {
+            var seasons = LibraryManager.GetItemList(
+                new InternalItemsQuery
+                {
+                    IncludeItemTypes = [BaseItemKind.Season],
+                    DtoOptions = new DtoOptions(false)
+                });
+
+            var seasonIds = new HashSet<Guid>();
+            foreach (var season in seasons.OfType<Season>())
+            {
+                if (!seasonIds.Add(season.Id))
+                {
+                    continue;
+                }
+
+                var seriesId = season.SeriesId != Guid.Empty
+                    ? season.SeriesId
+                    : season.ParentId;
+                if (seriesId == Guid.Empty)
+                {
+                    continue;
+                }
+
+                if (!seasonsBySeries.TryGetValue(
+                    seriesId, out var seriesSeasons
+                ))
+                {
+                    seriesSeasons = [];
+                    seasonsBySeries[seriesId] = seriesSeasons;
+                }
+
+                seriesSeasons.Add(season);
+            }
+        }
+
         var removedCount = 0;
         var total = seriesList.Count;
 
@@ -52,17 +136,8 @@ public class SeriesCleaner(
 
             if (config.DeleteEmptyShows)
             {
-                var episodeCount = LibraryManager.GetCount(
-                    new InternalItemsQuery
-                    {
-                        ParentId = series.Id,
-                        Recursive = true,
-                        IncludeItemTypes = [BaseItemKind.Episode],
-                        IsVirtualItem = false,
-                        IsMissing = false,
-                        Limit = 0,
-                        DtoOptions = new DtoOptions(false)
-                    });
+                var episodeCount =
+                    episodeCountsBySeries.GetValueOrDefault(series.Id);
 
                 if (episodeCount == 0)
                 {
@@ -119,12 +194,17 @@ public class SeriesCleaner(
                 UntagItem(series, config.HideTag, cancellationToken);
             }
 
-            if (config.DeleteEmptySeasons)
+            if (config.DeleteEmptySeasons &&
+                seasonsBySeries.TryGetValue(
+                    series.Id, out var seriesSeasons
+                ))
             {
                 removedCount += CleanSeasons(
                     series,
                     config,
-                    cancellationToken
+                    cancellationToken,
+                    seriesSeasons,
+                    episodeCountsBySeason
                 );
             }
 
@@ -137,10 +217,11 @@ public class SeriesCleaner(
     private int CleanSeasons(
         Series series,
         PluginConfiguration config,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<Season> seasons,
+        IReadOnlyDictionary<Guid, int> episodeCountsBySeason)
     {
         var removedCount = 0;
-        var seasons = series.GetSeasons(null, new DtoOptions(false));
 
         foreach (var season in seasons)
         {
@@ -151,16 +232,8 @@ public class SeriesCleaner(
                 continue;
             }
 
-            var episodeCount = LibraryManager.GetCount(
-                new InternalItemsQuery
-                {
-                    ParentId = season.Id,
-                    IncludeItemTypes = [BaseItemKind.Episode],
-                    IsVirtualItem = false,
-                    IsMissing = false,
-                    Limit = 0,
-                    DtoOptions = new DtoOptions(false)
-                });
+            var episodeCount =
+                episodeCountsBySeason.GetValueOrDefault(season.Id);
 
             if (episodeCount == 0)
             {
