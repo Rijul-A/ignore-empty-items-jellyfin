@@ -41,14 +41,14 @@ public abstract class BaseItemCleaner(
     protected bool HasHideTag(BaseItem item, string tag) =>
         item.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase);
 
-    protected async Task TagItem(
+    protected async Task<bool> TagItemAsync(
         BaseItem item,
         string tag,
         CancellationToken ct
     )
     {
         if (HasHideTag(item, tag))
-            return;
+            return false;
         item.Tags = [.. item.Tags, tag];
         await LibraryManager.UpdateItemAsync(
             item,
@@ -56,16 +56,17 @@ public abstract class BaseItemCleaner(
             ItemUpdateType.MetadataEdit,
             ct
         );
+        return true;
     }
 
-    protected async Task UntagItem(
+    protected async Task<bool> UntagItemAsync(
         BaseItem item,
         string tag,
         CancellationToken ct
     )
     {
         if (!HasHideTag(item, tag))
-            return;
+            return false;
         item.Tags = [.. item.Tags
             .Where(t => !t.Equals(
                 tag, StringComparison.OrdinalIgnoreCase))];
@@ -75,5 +76,7 @@ public abstract class BaseItemCleaner(
             ItemUpdateType.MetadataEdit,
             ct
         );
+        return true;
     }
+
 }

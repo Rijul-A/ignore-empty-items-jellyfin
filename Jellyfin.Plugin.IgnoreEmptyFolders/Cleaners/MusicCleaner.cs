@@ -90,12 +90,14 @@ public class MusicCleaner(
 
                 if (config.HideInsteadOfDelete)
                 {
-                    await TagItem(
+                    if (await TagItemAsync(
                         artist,
                         config.HideTag,
                         cancellationToken
-                    );
-                    removedCount++;
+                    ))
+                    {
+                        removedCount++;
+                    }
                 }
                 else
                 {
@@ -121,7 +123,7 @@ public class MusicCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                await UntagItem(
+                await UntagItemAsync(
                     artist,
                     config.HideTag,
                     cancellationToken
@@ -180,12 +182,14 @@ public class MusicCleaner(
 
                 if (config.HideInsteadOfDelete)
                 {
-                    await TagItem(
+                    if (await TagItemAsync(
                         album,
                         config.HideTag,
                         cancellationToken
-                    );
-                    removedCount++;
+                    ))
+                    {
+                        removedCount++;
+                    }
                 }
                 else
                 {
@@ -211,7 +215,7 @@ public class MusicCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                await UntagItem(
+                await UntagItemAsync(
                     album,
                     config.HideTag,
                     cancellationToken

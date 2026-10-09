@@ -133,6 +133,37 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
+    public async Task
+        AlreadyTaggedEmptyBoxSetIsNotCountedOrUpdatedInHideMode()
+    {
+        var config = CreateConfig();
+        var boxSet = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren = [],
+            Tags = [config.HideTag]
+        };
+        var library = CreateLibrary([boxSet], [boxSet]);
+
+        var removed = await CreateCleaner(library).CleanAsync(
+            config,
+            null,
+            CancellationToken.None);
+
+        Assert.Equal(0, removed);
+        Assert.Contains(config.HideTag, boxSet.Tags);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                boxSet,
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task BoxSetWithMediaIsPreserved()
     {
         var media = new Movie

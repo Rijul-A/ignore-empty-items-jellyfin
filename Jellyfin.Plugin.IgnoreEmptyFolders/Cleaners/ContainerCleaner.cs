@@ -178,12 +178,14 @@ public class ContainerCleaner(
 
                 if (config.HideInsteadOfDelete)
                 {
-                    await TagItem(
+                    if (await TagItemAsync(
                         container,
                         config.HideTag,
                         cancellationToken
-                    );
-                    removedCount++;
+                    ))
+                    {
+                        removedCount++;
+                    }
                 }
                 else
                 {
@@ -210,7 +212,7 @@ public class ContainerCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                await UntagItem(
+                await UntagItemAsync(
                     container, config.HideTag, cancellationToken);
             }
 

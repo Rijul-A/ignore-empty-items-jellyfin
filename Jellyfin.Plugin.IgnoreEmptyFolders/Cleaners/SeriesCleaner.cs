@@ -151,12 +151,14 @@ public class SeriesCleaner(
 
                     if (config.HideInsteadOfDelete)
                     {
-                        await TagItem(
+                        if (await TagItemAsync(
                             series,
                             config.HideTag,
                             cancellationToken
-                        );
-                        removedCount++;
+                        ))
+                        {
+                            removedCount++;
+                        }
                         continue;
                     }
 
@@ -182,7 +184,7 @@ public class SeriesCleaner(
                 }
                 else if (config.HideInsteadOfDelete)
                 {
-                    await UntagItem(
+                    await UntagItemAsync(
                         series,
                         config.HideTag,
                         cancellationToken
@@ -191,7 +193,7 @@ public class SeriesCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                await UntagItem(
+                await UntagItemAsync(
                     series,
                     config.HideTag,
                     cancellationToken
@@ -252,12 +254,14 @@ public class SeriesCleaner(
 
                 if (config.HideInsteadOfDelete)
                 {
-                    await TagItem(
+                    if (await TagItemAsync(
                         season,
                         config.HideTag,
                         cancellationToken
-                    );
-                    removedCount++;
+                    ))
+                    {
+                        removedCount++;
+                    }
                     continue;
                 }
 
@@ -282,7 +286,7 @@ public class SeriesCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                await UntagItem(
+                await UntagItemAsync(
                     season,
                     config.HideTag,
                     cancellationToken

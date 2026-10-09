@@ -42,7 +42,7 @@ public class MovieCleaner(
             foreach (var movie in taggedMovies)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await UntagItem(
+                await UntagItemAsync(
                     movie,
                     config.HideTag,
                     cancellationToken
@@ -90,8 +90,11 @@ public class MovieCleaner(
 
             if (config.HideInsteadOfDelete)
             {
-                await TagItem(movie, config.HideTag, cancellationToken);
-                removedCount++;
+                if (await TagItemAsync(
+                    movie, config.HideTag, cancellationToken))
+                {
+                    removedCount++;
+                }
             }
             else
             {
