@@ -2,7 +2,9 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.IgnoreEmptyFolders.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Playlists;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
@@ -144,7 +146,7 @@ public class ContainerCleaner(
 
             var container = containers[i];
             var typeName = container.GetType().Name;
-            if ((typeName == "BoxSet" || typeName == "Playlist") &&
+            if (container is BoxSet or Playlist &&
                 container is Folder folder &&
                 !folder.LinkedChildrenLoaded)
             {
