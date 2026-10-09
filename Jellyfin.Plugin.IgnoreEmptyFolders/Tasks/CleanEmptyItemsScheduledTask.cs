@@ -20,17 +20,14 @@ public class CleanEmptyItemsScheduledTask(
 
     public string Category => "Library";
 
-    public Task ExecuteAsync(
+    public async Task ExecuteAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken)
     {
-        return Task.Run(() =>
-        {
-            var cleaner = new LibraryCleanupManager(
-                libraryManager, userManager, loggerFactory
-            );
-            cleaner.CleanLibrary(progress, cancellationToken);
-        }, cancellationToken);
+        var cleaner = new LibraryCleanupManager(
+            libraryManager, userManager, loggerFactory
+        );
+        await cleaner.CleanLibraryAsync(progress, cancellationToken);
     }
 
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()

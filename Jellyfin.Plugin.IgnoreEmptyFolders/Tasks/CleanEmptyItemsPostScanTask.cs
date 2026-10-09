@@ -8,17 +8,14 @@ public class CleanEmptyItemsPostScanTask(
     IUserManager userManager,
     ILoggerFactory loggerFactory) : ILibraryPostScanTask
 {
-    public Task Run(
+    public async Task Run(
         IProgress<double> progress,
         CancellationToken cancellationToken)
     {
-        return Task.Run(() =>
-        {
-            var cleaner = new LibraryCleanupManager(
-                libraryManager,
-                userManager,
-                loggerFactory);
-            cleaner.CleanLibrary(progress, cancellationToken);
-        }, cancellationToken);
+        var cleaner = new LibraryCleanupManager(
+            libraryManager,
+            userManager,
+            loggerFactory);
+        await cleaner.CleanLibraryAsync(progress, cancellationToken);
     }
 }

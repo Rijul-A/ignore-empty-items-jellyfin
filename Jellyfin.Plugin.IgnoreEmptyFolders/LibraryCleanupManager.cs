@@ -38,7 +38,7 @@ public class LibraryCleanupManager(
     /// Handles tag migration and user enrollment
     /// when configuration changes.
     /// </summary>
-    public void HandleConfigurationChanged(
+    public async Task HandleConfigurationChangedAsync(
         CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
@@ -61,11 +61,10 @@ public class LibraryCleanupManager(
             if (config.HideInsteadOfDeleteWasActive &&
                 !string.IsNullOrEmpty(config.PreviousHideTag))
             {
-                MigrateTag(
+                await MigrateTagAsync(
                     config.PreviousHideTag,
                     string.Empty,
                     cancellationToken);
-                config.PreviousHideTag = string.Empty;
                 config.HideInsteadOfDeleteWasActive = false;
                 Plugin.Instance?.SaveConfiguration(config);
             }
@@ -78,7 +77,7 @@ public class LibraryCleanupManager(
                 config.HideTag,
                 StringComparison.OrdinalIgnoreCase))
         {
-            MigrateTag(
+            await MigrateTagAsync(
                 config.PreviousHideTag,
                 config.HideTag,
                 cancellationToken);
@@ -105,13 +104,15 @@ public class LibraryCleanupManager(
             Plugin.Instance?.SaveConfiguration(config);
         }
 
-        EnsureUsersBlockTag(config.HideTag, cancellationToken);
+        await EnsureUsersBlockTagAsync(
+            config.HideTag,
+            cancellationToken);
     }
 
     /// <summary>
     /// Executes all enabled cleanup tasks.
     /// </summary>
-    public void CleanLibrary(
+    public async Task CleanLibraryAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken)
     {
@@ -121,7 +122,7 @@ public class LibraryCleanupManager(
             return;
         }
 
-        HandleConfigurationChanged(cancellationToken);
+        await HandleConfigurationChangedAsync(cancellationToken);
 
         var enabledCleaners = _cleaners
             .Where(c => c.IsEnabled(config))
@@ -155,7 +156,7 @@ public class LibraryCleanupManager(
                 progress.Report(globalProgress * 100.0 / totalWeight);
             });
 
-            removedCount += cleaner.Clean(
+            removedCount += await cleaner.CleanAsync(
                 config,
                 relativeProgress,
                 cancellationToken);
@@ -170,7 +171,7 @@ public class LibraryCleanupManager(
         progress.Report(100);
     }
 
-    private void MigrateTag(
+    private async Task MigrateTagAsync(
         string oldTag,
         string newTag,
         CancellationToken cancellationToken)
@@ -206,12 +207,11 @@ public class LibraryCleanupManager(
             item.Tags = string.IsNullOrEmpty(newTag)
                 ? [.. tags]
                 : [.. tags, newTag];
-            libraryManager.UpdateItemAsync(
+            await libraryManager.UpdateItemAsync(
                 item,
                 item.GetParent(),
                 ItemUpdateType.MetadataEdit,
-                cancellationToken)
-                .GetAwaiter().GetResult();
+                cancellationToken);
         }
 
         _logger.LogInformation(
@@ -233,8 +233,7 @@ public class LibraryCleanupManager(
             policy.BlockedTags = [.. policy.BlockedTags
                 .Where(t => !t.Equals(
                     oldTag, StringComparison.OrdinalIgnoreCase))];
-            userManager.UpdatePolicyAsync(user.Id, policy)
-                .GetAwaiter().GetResult();
+            await userManager.UpdatePolicyAsync(user.Id, policy);
 
             _logger.LogInformation(
                 "Ignore Empty Items: Removed old tag \"{OldTag}\" " +
@@ -244,7 +243,7 @@ public class LibraryCleanupManager(
         }
     }
 
-    private void EnsureUsersBlockTag(
+    private async Task EnsureUsersBlockTagAsync(
         string tag,
         CancellationToken cancellationToken)
     {
@@ -258,11 +257,12 @@ public class LibraryCleanupManager(
         foreach (var user in users)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SyncUserTag(user, tag, config?.HideTagSkipAdmins ?? true);
+            await SyncUserTagAsync(
+                user, tag, config?.HideTagSkipAdmins ?? true);
         }
     }
 
-    private void SyncUserTag(
+    private async Task SyncUserTagAsync(
         User user,
         string tag,
         bool skipAdmins)
@@ -276,8 +276,7 @@ public class LibraryCleanupManager(
         if (shouldHaveTag && !hasTag)
         {
             policy.BlockedTags = [.. policy.BlockedTags, tag];
-            userManager.UpdatePolicyAsync(user.Id, policy)
-                .GetAwaiter().GetResult();
+            await userManager.UpdatePolicyAsync(user.Id, policy);
             _logger.LogInformation(
                 "Ignore Empty Items: Added blocked tag \"{Tag}\" " +
                 "for user \"{User}\"",
@@ -289,8 +288,7 @@ public class LibraryCleanupManager(
             policy.BlockedTags = [.. policy.BlockedTags
                 .Where(t => !t.Equals(
                     tag, StringComparison.OrdinalIgnoreCase))];
-            userManager.UpdatePolicyAsync(user.Id, policy)
-                .GetAwaiter().GetResult();
+            await userManager.UpdatePolicyAsync(user.Id, policy);
             _logger.LogInformation(
                 "Ignore Empty Items: Removed blocked tag \"{Tag}\" " +
                 "from user \"{User}\"",

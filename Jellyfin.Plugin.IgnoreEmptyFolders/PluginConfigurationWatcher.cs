@@ -32,7 +32,7 @@ public class PluginConfigurationWatcher(
         return Task.CompletedTask;
     }
 
-    private void OnConfigurationChanged(
+    private async void OnConfigurationChanged(
         object? sender, BasePluginConfiguration e)
     {
         var manager = new LibraryCleanupManager(
@@ -40,6 +40,7 @@ public class PluginConfigurationWatcher(
             userManager,
             loggerFactory);
 
-        manager.HandleConfigurationChanged(CancellationToken.None);
+        await manager.HandleConfigurationChangedAsync(
+            CancellationToken.None);
     }
 }

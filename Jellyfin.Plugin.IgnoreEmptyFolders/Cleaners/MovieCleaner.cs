@@ -20,7 +20,7 @@ public class MovieCleaner(
         return config.DeleteEmptyMovies;
     }
 
-    public override int Clean(
+    public override async Task<int> CleanAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -42,7 +42,11 @@ public class MovieCleaner(
             foreach (var movie in taggedMovies)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                UntagItem(movie, config.HideTag, cancellationToken);
+                await UntagItem(
+                    movie,
+                    config.HideTag,
+                    cancellationToken
+                );
             }
         }
 
@@ -86,7 +90,7 @@ public class MovieCleaner(
 
             if (config.HideInsteadOfDelete)
             {
-                TagItem(movie, config.HideTag, cancellationToken);
+                await TagItem(movie, config.HideTag, cancellationToken);
                 removedCount++;
             }
             else

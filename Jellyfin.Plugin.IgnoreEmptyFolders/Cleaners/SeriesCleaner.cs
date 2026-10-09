@@ -21,7 +21,7 @@ public class SeriesCleaner(
         return config.DeleteEmptyShows || config.DeleteEmptySeasons;
     }
 
-    public override int Clean(
+    public override async Task<int> CleanAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -151,7 +151,7 @@ public class SeriesCleaner(
 
                     if (config.HideInsteadOfDelete)
                     {
-                        TagItem(
+                        await TagItem(
                             series,
                             config.HideTag,
                             cancellationToken
@@ -182,7 +182,7 @@ public class SeriesCleaner(
                 }
                 else if (config.HideInsteadOfDelete)
                 {
-                    UntagItem(
+                    await UntagItem(
                         series,
                         config.HideTag,
                         cancellationToken
@@ -191,7 +191,11 @@ public class SeriesCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                UntagItem(series, config.HideTag, cancellationToken);
+                await UntagItem(
+                    series,
+                    config.HideTag,
+                    cancellationToken
+                );
             }
 
             if (config.DeleteEmptySeasons &&
@@ -199,7 +203,7 @@ public class SeriesCleaner(
                     series.Id, out var seriesSeasons
                 ))
             {
-                removedCount += CleanSeasons(
+                removedCount += await CleanSeasonsAsync(
                     series,
                     config,
                     cancellationToken,
@@ -214,7 +218,7 @@ public class SeriesCleaner(
         return removedCount;
     }
 
-    private int CleanSeasons(
+    private async Task<int> CleanSeasonsAsync(
         Series series,
         PluginConfiguration config,
         CancellationToken cancellationToken,
@@ -248,7 +252,11 @@ public class SeriesCleaner(
 
                 if (config.HideInsteadOfDelete)
                 {
-                    TagItem(season, config.HideTag, cancellationToken);
+                    await TagItem(
+                        season,
+                        config.HideTag,
+                        cancellationToken
+                    );
                     removedCount++;
                     continue;
                 }
@@ -274,7 +282,11 @@ public class SeriesCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                UntagItem(season, config.HideTag, cancellationToken);
+                await UntagItem(
+                    season,
+                    config.HideTag,
+                    cancellationToken
+                );
             }
         }
 

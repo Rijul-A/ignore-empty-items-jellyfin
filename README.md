@@ -180,6 +180,9 @@ Both mechanisms share the same logic and respect the plugin's
 configuration. Saving configuration changes also synchronizes the hide
 tag for existing users and newly created users.
 
+Cleanup execution and metadata updates are awaited asynchronously, while
+cleaner phases remain sequential for predictable progress reporting.
+
 ### How emptiness is determined
 
 Items are considered empty when they contain **zero** relevant media or

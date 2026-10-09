@@ -22,7 +22,7 @@ public class ContainerCleaner(
                config.DeleteEmptyPlaylists;
     }
 
-    public override int Clean(
+    public override async Task<int> CleanAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -105,8 +105,8 @@ public class ContainerCleaner(
             children.Add(item.Id);
         }
 
-        var linkedChildrenByParentId = new \
-            Dictionary<Guid, List<Guid>>();
+        var linkedChildrenByParentId =
+            new Dictionary<Guid, List<Guid>>();
         foreach (var item in allItems.Concat(containers))
         {
             if (
@@ -178,7 +178,7 @@ public class ContainerCleaner(
 
                 if (config.HideInsteadOfDelete)
                 {
-                    TagItem(
+                    await TagItem(
                         container,
                         config.HideTag,
                         cancellationToken
@@ -210,7 +210,8 @@ public class ContainerCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                UntagItem(container, config.HideTag, cancellationToken);
+                await UntagItem(
+                    container, config.HideTag, cancellationToken);
             }
 
             ReportProgress(progress, i + 1, total);

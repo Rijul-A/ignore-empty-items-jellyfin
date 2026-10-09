@@ -22,7 +22,7 @@ public abstract class BaseItemCleaner(
 
     public abstract bool IsEnabled(PluginConfiguration config);
 
-    public abstract int Clean(
+    public abstract Task<int> CleanAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken);
@@ -41,7 +41,7 @@ public abstract class BaseItemCleaner(
     protected bool HasHideTag(BaseItem item, string tag) =>
         item.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase);
 
-    protected void TagItem(
+    protected async Task TagItem(
         BaseItem item,
         string tag,
         CancellationToken ct
@@ -50,15 +50,15 @@ public abstract class BaseItemCleaner(
         if (HasHideTag(item, tag))
             return;
         item.Tags = [.. item.Tags, tag];
-        LibraryManager.UpdateItemAsync(
+        await LibraryManager.UpdateItemAsync(
             item,
             item.GetParent(),
             ItemUpdateType.MetadataEdit,
             ct
-        ).GetAwaiter().GetResult();
+        );
     }
 
-    protected void UntagItem(
+    protected async Task UntagItem(
         BaseItem item,
         string tag,
         CancellationToken ct
@@ -69,11 +69,11 @@ public abstract class BaseItemCleaner(
         item.Tags = [.. item.Tags
             .Where(t => !t.Equals(
                 tag, StringComparison.OrdinalIgnoreCase))];
-        LibraryManager.UpdateItemAsync(
+        await LibraryManager.UpdateItemAsync(
             item,
             item.GetParent(),
             ItemUpdateType.MetadataEdit,
             ct
-        ).GetAwaiter().GetResult();
+        );
     }
 }

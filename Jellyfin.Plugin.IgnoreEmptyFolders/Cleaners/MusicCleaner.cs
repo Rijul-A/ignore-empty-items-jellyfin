@@ -20,7 +20,7 @@ public class MusicCleaner(
                config.DeleteEmptyMusicAlbums;
     }
 
-    public override int Clean(
+    public override async Task<int> CleanAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -29,14 +29,14 @@ public class MusicCleaner(
 
         if (config.DeleteEmptyMusicArtists)
         {
-            removedCount += CleanArtists(
+            removedCount += await CleanArtistsAsync(
                 config, progress, cancellationToken
             );
         }
 
         if (config.DeleteEmptyMusicAlbums)
         {
-            removedCount += CleanAlbums(
+            removedCount += await CleanAlbumsAsync(
                 config, progress, cancellationToken
             );
         }
@@ -44,7 +44,7 @@ public class MusicCleaner(
         return removedCount;
     }
 
-    private int CleanArtists(
+    private async Task<int> CleanArtistsAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -90,7 +90,11 @@ public class MusicCleaner(
 
                 if (config.HideInsteadOfDelete)
                 {
-                    TagItem(artist, config.HideTag, cancellationToken);
+                    await TagItem(
+                        artist,
+                        config.HideTag,
+                        cancellationToken
+                    );
                     removedCount++;
                 }
                 else
@@ -117,7 +121,11 @@ public class MusicCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                UntagItem(artist, config.HideTag, cancellationToken);
+                await UntagItem(
+                    artist,
+                    config.HideTag,
+                    cancellationToken
+                );
             }
 
             ReportProgress(progress, ++processed, total);
@@ -126,7 +134,7 @@ public class MusicCleaner(
         return removedCount;
     }
 
-    private int CleanAlbums(
+    private async Task<int> CleanAlbumsAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -172,7 +180,11 @@ public class MusicCleaner(
 
                 if (config.HideInsteadOfDelete)
                 {
-                    TagItem(album, config.HideTag, cancellationToken);
+                    await TagItem(
+                        album,
+                        config.HideTag,
+                        cancellationToken
+                    );
                     removedCount++;
                 }
                 else
@@ -199,7 +211,11 @@ public class MusicCleaner(
             }
             else if (config.HideInsteadOfDelete)
             {
-                UntagItem(album, config.HideTag, cancellationToken);
+                await UntagItem(
+                    album,
+                    config.HideTag,
+                    cancellationToken
+                );
             }
 
             ReportProgress(progress, ++processed, total);

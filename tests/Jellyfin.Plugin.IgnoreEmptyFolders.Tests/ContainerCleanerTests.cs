@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tests;
 public sealed class ContainerCleanerTests
 {
     [Fact]
-    public void UnloadedPlaylistIsSkipped()
+    public async Task UnloadedPlaylistIsSkipped()
     {
         var playlist = new MediaBrowser.Controller.Playlists.Playlist
         {
@@ -21,7 +21,7 @@ public sealed class ContainerCleanerTests
         };
         var library = CreateLibrary([playlist], [playlist]);
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             CreateConfig(),
             null,
             CancellationToken.None);
@@ -44,7 +44,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void LoadedEmptyPlaylistIsDeletedWithoutDeletingFiles()
+    public async Task LoadedEmptyPlaylistIsDeletedWithoutDeletingFiles()
     {
         var playlist = new MediaBrowser.Controller.Playlists.Playlist
         {
@@ -55,7 +55,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -70,7 +70,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void PlaylistWithMediaIsNotDeleted()
+    public async Task PlaylistWithMediaIsNotDeleted()
     {
         var media = new Movie
         {
@@ -89,7 +89,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -104,7 +104,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void EmptyBoxSetIsTaggedInHideMode()
+    public async Task EmptyBoxSetIsTaggedInHideMode()
     {
         var boxSet = new BoxSet
         {
@@ -114,7 +114,7 @@ public sealed class ContainerCleanerTests
 
         var library = CreateLibrary([boxSet], [boxSet]);
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             CreateConfig(),
             null,
             CancellationToken.None);
@@ -133,7 +133,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void BoxSetWithMediaIsPreserved()
+    public async Task BoxSetWithMediaIsPreserved()
     {
         var media = new Movie
         {
@@ -152,7 +152,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -166,7 +166,7 @@ public sealed class ContainerCleanerTests
             Times.Never);
     }
     [Fact]
-    public void PlaylistWithNestedLinkedMediaIsNotDeleted()
+    public async Task PlaylistWithNestedLinkedMediaIsNotDeleted()
     {
         var linkedFolder = new Folder
         {
@@ -193,7 +193,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -208,7 +208,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void NestedEmptyFoldersAreDeleted()
+    public async Task NestedEmptyFoldersAreDeleted()
     {
         var root = new Folder { Id = Guid.NewGuid(), Name = "Root" };
         var nested = new Folder
@@ -221,7 +221,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -236,7 +236,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void MetadataOnlyFoldersAreDeleted()
+    public async Task MetadataOnlyFoldersAreDeleted()
     {
         var root = new Folder
         {
@@ -259,7 +259,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -272,7 +272,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void DeeplyNestedRealMediaPreservesContainingFolder()
+    public async Task DeeplyNestedRealMediaPreservesContainingFolder()
     {
         var root = new Folder
         {
@@ -303,7 +303,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -318,7 +318,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void FolderWithOnlyVirtualMediaIsDeleted()
+    public async Task FolderWithOnlyVirtualMediaIsDeleted()
     {
         var root = new Folder
         {
@@ -341,7 +341,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -356,7 +356,7 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public void FolderWithOnlyMissingMediaIsDeleted()
+    public async Task FolderWithOnlyMissingMediaIsDeleted()
     {
         var root = new Folder
         {
@@ -381,7 +381,7 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 

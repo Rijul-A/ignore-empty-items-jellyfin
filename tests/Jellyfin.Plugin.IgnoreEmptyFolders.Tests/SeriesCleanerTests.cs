@@ -13,14 +13,14 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tests;
 public sealed class SeriesCleanerTests
 {
     [Fact]
-    public void EmptySeriesIsTaggedInHideMode()
+    public async Task EmptySeriesIsTaggedInHideMode()
     {
         var series = NewSeries("Empty series");
         var library = CreateLibrary([series], [], []);
 
         var config = CreateConfig();
         config.DeleteEmptySeasons = false;
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config,
             null,
             CancellationToken.None);
@@ -47,7 +47,8 @@ public sealed class SeriesCleanerTests
     }
 
     [Fact]
-    public void EmptySeriesWithOnlyVirtualAndMissingEpisodesIsDeleted()
+    public async Task
+        EmptySeriesWithOnlyVirtualAndMissingEpisodesIsDeleted()
     {
         var series = NewSeries("Empty series");
         var virtualEpisode = NewEpisode(
@@ -64,7 +65,7 @@ public sealed class SeriesCleanerTests
         config.DeleteEmptySeasons = false;
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -81,7 +82,7 @@ public sealed class SeriesCleanerTests
     }
 
     [Fact]
-    public void SeriesWithRealEpisodeIsPreserved()
+    public async Task SeriesWithRealEpisodeIsPreserved()
     {
         var emptySeries = NewSeries("Empty series");
         var populatedSeries = NewSeries("Populated series");
@@ -104,7 +105,7 @@ public sealed class SeriesCleanerTests
         config.DeleteEmptySeasons = false;
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -126,7 +127,7 @@ public sealed class SeriesCleanerTests
     }
 
     [Fact]
-    public void CleansOnlyEmptyFilesystemSeasons()
+    public async Task CleansOnlyEmptyFilesystemSeasons()
     {
         var series = NewSeries("Series");
         var emptyFilesystemSeason = NewSeason(
@@ -171,7 +172,7 @@ public sealed class SeriesCleanerTests
         config.DeleteEmptyShows = false;
         config.HideInsteadOfDelete = false;
 
-        var removed = CreateCleaner(library).Clean(
+        var removed = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
@@ -219,7 +220,7 @@ public sealed class SeriesCleanerTests
         fileSystem
             .Setup(m => m.IsPathFile(It.IsAny<string>()))
             .Returns(
-                (string path) => \
+                (string path) =>
                     !path.Contains("://", StringComparison.Ordinal)
             );
         BaseItem.FileSystem = fileSystem.Object;
@@ -263,7 +264,7 @@ public sealed class SeriesCleanerTests
                 }
 
                 throw new InvalidOperationException(
-                    "Unexpected GetItemList query " + \
+                    "Unexpected GetItemList query " +
                     "in SeriesCleanerTests."
                 );
             });
@@ -272,8 +273,7 @@ public sealed class SeriesCleanerTests
                 It.IsAny<InternalItemsQuery>()
             ))
             .Returns((InternalItemsQuery _) =>
-                throw new \
-                InvalidOperationException(
+                throw new InvalidOperationException(
                     "SeriesCleaner must not call GetCount."
                 )
             );
