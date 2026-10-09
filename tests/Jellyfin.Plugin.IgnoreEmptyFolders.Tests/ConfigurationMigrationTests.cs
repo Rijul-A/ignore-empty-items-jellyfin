@@ -74,8 +74,9 @@ public sealed class ConfigurationMigrationTests
 
             using var secondCancellation = new CancellationTokenSource(
                 TimeSpan.FromMilliseconds(100));
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                secondManager.HandleConfigurationChangedAsync(
+            await Assert.ThrowsAnyAsync<
+                OperationCanceledException>(
+                () => secondManager.HandleConfigurationChangedAsync(
                     secondCancellation.Token));
 
             secondLibrary.Verify(
@@ -90,7 +91,8 @@ public sealed class ConfigurationMigrationTests
     }
 
     [Fact]
-    public async Task CleanupUsesConfigurationAfterMigrationReconciliation()
+    public async Task
+        CleanupUsesConfigurationAfterMigrationReconciliation()
     {
         var configurationB = new PluginConfiguration
         {
@@ -184,7 +186,8 @@ public sealed class ConfigurationMigrationTests
     }
 
     [Fact]
-    public async Task ConfigurationReplacementDuringMigrationConvergesToLatestTag()
+    public async Task
+        ConfigurationReplacementDuringMigrationConvergesToLatestTag()
     {
         var configurationB = new PluginConfiguration
         {
@@ -298,7 +301,8 @@ public sealed class ConfigurationMigrationTests
         paths.SetupGet(p => p.DataPath).Returns(tempPath);
         paths.SetupGet(p => p.ImageCachePath).Returns(tempPath);
         paths.SetupGet(p => p.PluginsPath).Returns(tempPath);
-        paths.SetupGet(p => p.PluginConfigurationsPath).Returns(tempPath);
+        paths.SetupGet(p => p.PluginConfigurationsPath)
+            .Returns(tempPath);
         paths.SetupGet(p => p.LogDirectoryPath).Returns(tempPath);
         paths.SetupGet(p => p.ConfigurationDirectoryPath)
             .Returns(tempPath);
@@ -319,7 +323,8 @@ public sealed class ConfigurationMigrationTests
             .Setup(s => s.SerializeToFile(
                 It.IsAny<object>(),
                 It.IsAny<string>()))
-            .Callback<object, string>((value, _) => onSave?.Invoke(value));
+            .Callback<object, string>(
+                (value, _) => onSave?.Invoke(value));
 
         return new Plugin(paths.Object, serializer.Object);
     }
