@@ -26,6 +26,12 @@ public class LibraryCleanupManager(
         Plugin,
         MigrationState> MigrationStates = new();
 
+    private static readonly Func<
+        Configuration.PluginConfiguration,
+        bool> ConfigurationIsCurrent =
+        static config =>
+            ReferenceEquals(config, Plugin.Instance?.Configuration);
+
     private readonly ILogger<LibraryCleanupManager> _logger =
         loggerFactory.CreateLogger<LibraryCleanupManager>();
 
@@ -33,17 +39,21 @@ public class LibraryCleanupManager(
     [
         new SeriesCleaner(
             libraryManager,
-            loggerFactory.CreateLogger<SeriesCleaner>()),
+            loggerFactory.CreateLogger<SeriesCleaner>(),
+            ConfigurationIsCurrent),
         new MovieCleaner(
             libraryManager,
-            loggerFactory.CreateLogger<MovieCleaner>()),
+            loggerFactory.CreateLogger<MovieCleaner>(),
+            ConfigurationIsCurrent),
         new MusicCleaner(
             libraryManager,
-            loggerFactory.CreateLogger<MusicCleaner>()),
+            loggerFactory.CreateLogger<MusicCleaner>(),
+            ConfigurationIsCurrent),
         new ContainerCleaner(
             libraryManager,
             loggerFactory.CreateLogger<ContainerCleaner>(),
-            linkedChildrenService)
+            linkedChildrenService,
+            ConfigurationIsCurrent)
     ];
 
     /// <summary>
@@ -246,6 +256,11 @@ public class LibraryCleanupManager(
             foreach (var cleaner in enabledCleaners)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!ConfigurationIsCurrent(config))
+                {
+                    throw new OperationCanceledException(
+                        "Plugin configuration changed during cleanup.");
+                }
 
                 var cleanerWeight = cleaner.Weight;
                 var start = currentStart;

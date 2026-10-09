@@ -316,6 +316,265 @@ public sealed class SeriesCleanerTests
     }
 
     [Fact]
+    public async Task NestedRealEpisodeRestoresFilesystemSeason()
+    {
+        var series = NewSeries("Series");
+        var populated = NewSeason(
+            series, "Populated", "/library/series/season-1"
+        );
+        populated.Tags = ["plugin-ignore-empty-items-hidden"];
+        var empty = NewSeason(
+            series, "Empty", "/library/series/season-2"
+        );
+        var folder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = populated.Id,
+            Path = "/library/series/season-1/extras"
+        };
+        var episode = NewEpisode(
+            series, populated, "Episode", isVirtual: false
+        );
+        episode.ParentId = folder.Id;
+        episode.SeasonId = Guid.Empty;
+        var library = CreateLibrary(
+            [series], [episode], [populated, empty],
+            [series, populated, empty, folder, episode]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = false;
+        config.HideInsteadOfDelete = true;
+
+        var previousLibraryManager = BaseItem.LibraryManager;
+        BaseItem.LibraryManager = library.Object;
+        int changedCount;
+        try
+        {
+            changedCount = await CreateCleaner(library).CleanAsync(
+                config, null, CancellationToken.None
+            );
+        }
+        finally
+        {
+            BaseItem.LibraryManager = previousLibraryManager;
+        }
+
+        Assert.Equal(2, changedCount);
+        Assert.DoesNotContain(config.HideTag, populated.Tags);
+        Assert.Contains(config.HideTag, empty.Tags);
+        AssertBulkGraphLookupOnce(library);
+        AssertNoScalarCounts(library);
+        AssertBulkLookupsOnce(
+            library, episodeLookup: 1, seasonLookup: 1
+        );
+    }
+
+    [Fact]
+    public async Task NestedRealEpisodePreservesSeasonInDeleteMode()
+    {
+        var series = NewSeries("Series");
+        var populated = NewSeason(
+            series, "Populated", "/library/series/season-1"
+        );
+        var empty = NewSeason(
+            series, "Empty", "/library/series/season-2"
+        );
+        var folder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = populated.Id,
+            Path = "/library/series/season-1/extras"
+        };
+        var episode = NewEpisode(
+            series, populated, "Episode", isVirtual: false
+        );
+        episode.ParentId = folder.Id;
+        episode.SeasonId = empty.Id;
+        var library = CreateLibrary(
+            [series], [episode], [populated, empty],
+            [series, populated, empty, folder, episode]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = false;
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                populated, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(
+                empty,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+        AssertBulkGraphLookupOnce(library);
+        AssertNoScalarCounts(library);
+        AssertBulkLookupsOnce(
+            library, episodeLookup: 1, seasonLookup: 1
+        );
+    }
+
+    [Fact]
+    public async Task UnresolvedEpisodeProtectsSeasonIdCandidate()
+    {
+        var series = NewSeries("Series");
+        var candidate = NewSeason(
+            series, "Candidate", "/library/series/season-1"
+        );
+        candidate.Tags = ["plugin-ignore-empty-items-hidden"];
+        var empty = NewSeason(
+            series, "Empty", "/library/series/season-2"
+        );
+        var episode = NewEpisode(
+            series, candidate, "Episode", isVirtual: false
+        );
+        episode.ParentId = Guid.NewGuid();
+        var library = CreateLibrary(
+            [series], [episode], [candidate, empty]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = false;
+        config.HideInsteadOfDelete = true;
+
+        var previousLibraryManager = BaseItem.LibraryManager;
+        BaseItem.LibraryManager = library.Object;
+        int changedCount;
+        try
+        {
+            changedCount = await CreateCleaner(library).CleanAsync(
+                config, null, CancellationToken.None
+            );
+        }
+        finally
+        {
+            BaseItem.LibraryManager = previousLibraryManager;
+        }
+
+        Assert.Equal(1, changedCount);
+        Assert.Contains(config.HideTag, candidate.Tags);
+        Assert.Contains(config.HideTag, empty.Tags);
+    }
+
+    [Fact]
+    public async Task CyclicEpisodeParentProtectsSeasonIdCandidate()
+    {
+        var series = NewSeries("Series");
+        var candidate = NewSeason(
+            series, "Candidate", "/library/series/season-1"
+        );
+        var empty = NewSeason(
+            series, "Empty", "/library/series/season-2"
+        );
+        var first = new Folder { Id = Guid.NewGuid() };
+        var second = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = first.Id
+        };
+        first.ParentId = second.Id;
+        var episode = NewEpisode(
+            series, candidate, "Episode", isVirtual: false
+        );
+        episode.ParentId = first.Id;
+        var library = CreateLibrary(
+            [series], [episode], [candidate, empty],
+            [series, candidate, empty, first, second, episode]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = false;
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                candidate, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(
+                empty,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DirectEpisodeDoesNotProtectEmptySeason(
+        bool hasStaleSeasonId)
+    {
+        var series = NewSeries("Series");
+        var empty = NewSeason(
+            series, "Empty", "/library/series/season-1"
+        );
+        var episode = NewEpisode(
+            series, null, "Episode", isVirtual: false
+        );
+        if (hasStaleSeasonId)
+        {
+            episode.SeasonId = empty.Id;
+        }
+
+        var library = CreateLibrary(
+            [series], [episode], [empty]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = false;
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                empty,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UnknownEpisodeSeasonProtectsEverySeason()
+    {
+        var series = NewSeries("Series");
+        var first = NewSeason(
+            series, "First", "/library/series/season-1"
+        );
+        var second = NewSeason(
+            series, "Second", "/library/series/season-2"
+        );
+        var episode = NewEpisode(
+            series, null, "Episode", isVirtual: false
+        );
+        episode.ParentId = Guid.NewGuid();
+        var library = CreateLibrary(
+            [series], [episode], [first, second]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = false;
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<Season>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task StaleSeasonSeriesIdRestoresPhysicalSeason()
     {
         var physicalSeries = NewSeries("Physical series");

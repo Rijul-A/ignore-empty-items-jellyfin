@@ -180,7 +180,9 @@ Both mechanisms share the same logic and respect the plugin's
 configuration. Saving configuration changes synchronizes the hide
 tag for existing and newly created users. Cleanup saves the plugin
 configuration only when its recorded hide-tag migration state
-changes, not on every reconciliation.
+changes, not on every reconciliation. Replacing the configuration
+during a cleanup stops the old run before its next metadata update
+or deletion.
 
 Cleanup execution and metadata updates are awaited asynchronously, while
 cleaner phases remain sequential for predictable progress reporting.
@@ -194,15 +196,25 @@ is configured.
 Items are considered empty when they contain zero relevant media or child
 items that are non-virtual/non-missing media with an actual path. TV episode
 and season ownership follows the indexed physical parent hierarchy,
-not stale `SeriesId` metadata. An episode whose parent chain cannot
+not stale `SeriesId` metadata. Seasons belong to the series reached
+through their parent ancestry; a stale series ID cannot make episodes
+count for a different series. An episode whose parent chain cannot
 resolve protects its metadata-indicated series against empty-series
 cleanup. If that ID is missing or does not identify an indexed series,
 empty-series cleanup is skipped for every series in that run.
 
-Unloaded linked-child collections are hydrated from persisted link IDs when
-available. If hydration fails, or a linked-child identity is missing,
-unresolved, or cyclic, the relationship is treated as unknown. Unknown
-containers are preserved; only confirmed-empty items are hidden or removed.
+Unloaded ordinary folders are hydrated from persisted linked-child IDs
+only when reached from a selected container through physical or linked
+children. Hydration is attempted once per reached folder per cleanup,
+not for every folder in the library snapshot. Jellyfin 12 offers only
+per-folder linked-child lookup, not a bulk API; selecting all folders
+can still require one lookup for each unloaded folder. BoxSets and
+Playlists remain unknown while unloaded. If hydration fails, or a
+linked-child identity is missing, unresolved, or cyclic, the
+relationship is treated as unknown. Unknown containers are preserved;
+only confirmed-empty items are hidden or removed. Media reachable
+through a cycle can restore previously hidden containers regardless
+of which container was checked first.
 
 For loaded linked children, an indexed non-empty `ItemId` wins.
 Unlike Jellyfin, if that ID is absent from the bulk snapshot, the

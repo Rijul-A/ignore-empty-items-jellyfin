@@ -799,6 +799,112 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
+    public async Task OnlyReachableUnloadedFolderIsHydratedOnce()
+    {
+        var config = CreateConfig();
+        config.DeleteEmptyFolders = false;
+        config.DeleteEmptyPlaylists = false;
+        config.HideInsteadOfDelete = false;
+        var reachable = new Folder { Id = Guid.NewGuid() };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/persisted-collection-movie.mkv"
+        };
+        var first = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = reachable.Id }
+            ]
+        };
+        var second = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = reachable.Id }
+            ]
+        };
+        var graph = new List<BaseItem>
+        {
+            first, second, reachable, media
+        };
+        for (var i = 0; i < 64; i++)
+        {
+            graph.Add(new Folder { Id = Guid.NewGuid() });
+        }
+
+        var linkedChildren = new Mock<ILinkedChildrenService>();
+        linkedChildren
+            .Setup(m => m.GetLinkedChildrenIds(reachable.Id, null))
+            .Returns([media.Id]);
+        var library = CreateLibrary([first, second], graph);
+
+        var changedCount = await CreateCleaner(
+            library, linkedChildren.Object).CleanAsync(
+                config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        linkedChildren.Verify(
+            m => m.GetLinkedChildrenIds(reachable.Id, null),
+            Times.Once);
+        linkedChildren.Verify(
+            m => m.GetLinkedChildrenIds(It.IsAny<Guid>(), null),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ReplacedConfigDoesNotUntagHydratedFolder()
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = true;
+        var current = config;
+        var root = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Tags = [config.HideTag]
+        };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/stale-configuration-movie.mkv"
+        };
+        var linkedChildren = new Mock<ILinkedChildrenService>();
+        linkedChildren
+            .Setup(m => m.GetLinkedChildrenIds(root.Id, null))
+            .Returns(() =>
+            {
+                current = new PluginConfiguration();
+                return [media.Id];
+            });
+        var library = CreateLibrary([root], [root, media]);
+        var cleaner = new ContainerCleaner(
+            library.Object,
+            NullLogger<ContainerCleaner>.Instance,
+            linkedChildren.Object,
+            candidate => ReferenceEquals(candidate, current));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => cleaner.CleanAsync(
+                config, null, CancellationToken.None));
+
+        Assert.Contains(config.HideTag, root.Tags);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task
         UnloadedOrdinaryRootWithHydratedEmptyLinksIsDeleted()
     {
@@ -858,6 +964,57 @@ public sealed class ContainerCleanerTests
             config, null, CancellationToken.None);
 
         Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CyclicFoldersWithMediaAreBothRestored()
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = true;
+        var first = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Tags = [config.HideTag]
+        };
+        var second = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Tags = [config.HideTag]
+        };
+        first.LinkedChildren =
+        [
+            new LinkedChild { ItemId = second.Id }
+        ];
+        second.LinkedChildren =
+        [
+            new LinkedChild { ItemId = first.Id }
+        ];
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            ParentId = first.Id,
+            Path = "/media/first-folder-movie.mkv"
+        };
+        var library = CreateLibrary(
+            [first, second], [first, second, media]);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(2, changedCount);
+        Assert.DoesNotContain(config.HideTag, first.Tags);
+        Assert.DoesNotContain(config.HideTag, second.Tags);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),

@@ -13,8 +13,10 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 public class ContainerCleaner(
     ILibraryManager libraryManager,
     ILogger<ContainerCleaner> logger,
-    ILinkedChildrenService? linkedChildrenService = null)
-    : BaseItemCleaner(libraryManager, logger)
+    ILinkedChildrenService? linkedChildrenService = null,
+    Func<PluginConfiguration, bool>? isConfigurationCurrent = null)
+    : BaseItemCleaner(
+        libraryManager, logger, isConfigurationCurrent)
 {
 
     public override double Weight => CleanupWeights.Containers;
@@ -136,87 +138,37 @@ public class ContainerCleaner(
         var linkedChildrenByParentId =
             new Dictionary<Guid, List<LinkedReference>>();
         var hydratedLinkedChildrenFolders = new HashSet<Guid>();
+        var attemptedLinkedChildrenFolders = new HashSet<Guid>();
         foreach (var item in itemsById.Values)
         {
-            if (item is not Folder folder)
+            if (item is not Folder folder ||
+                !folder.LinkedChildrenLoaded)
             {
                 continue;
             }
 
-            if (folder.LinkedChildrenLoaded)
+            hydratedLinkedChildrenFolders.Add(item.Id);
+            foreach (var linkedChild in folder.LinkedChildren)
             {
-                hydratedLinkedChildrenFolders.Add(item.Id);
-                foreach (var linkedChild in folder.LinkedChildren)
+                var childId = ResolveLinkedChildId(
+                    linkedChild,
+                    folder.ContainingFolderPath,
+                    itemsById,
+                    itemsByPath,
+                    itemsByLibraryId);
+                if (!linkedChildrenByParentId.TryGetValue(
+                        item.Id, out var linkedChildren))
                 {
-                    var childId = ResolveLinkedChildId(
-                        linkedChild,
-                        folder.ContainingFolderPath,
-                        itemsById,
-                        itemsByPath,
-                        itemsByLibraryId);
-                    if (!linkedChildrenByParentId.TryGetValue(
-                            item.Id, out var linkedChildren))
-                    {
-                        linkedChildren = [];
-                        linkedChildrenByParentId[item.Id] =
-                            linkedChildren;
-                    }
-
-                    // An unresolved entry is intentionally retained
-                    // as an unknown edge. Dropping it would make a
-                    // loaded container look empty and could delete
-                    // the container.
-                    linkedChildren.Add(
-                        new LinkedReference(childId));
+                    linkedChildren = [];
+                    linkedChildrenByParentId[item.Id] =
+                        linkedChildren;
                 }
 
-                continue;
-            }
-
-            // BoxSet and Playlist have historically remained unknown
-            // while unloaded. Only ordinary folders use the
-            // persistence service.
-            if (item is BoxSet or Playlist ||
-                linkedChildrenService is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                var linkedChildIds =
-                    linkedChildrenService.GetLinkedChildrenIds(
-                        item.Id, null);
-                if (linkedChildIds is null)
-                {
-                    continue;
-                }
-
-                hydratedLinkedChildrenFolders.Add(item.Id);
-                foreach (var linkedChildId in linkedChildIds)
-                {
-                    if (!linkedChildrenByParentId.TryGetValue(
-                            item.Id, out var linkedChildren))
-                    {
-                        linkedChildren = [];
-                        linkedChildrenByParentId[item.Id] =
-                            linkedChildren;
-                    }
-
-                    // Keep IDs absent from the bulk snapshot as
-                    // unresolved edges so they conservatively
-                    // evaluate as Unknown.
-                    linkedChildren.Add(
-                        new LinkedReference(linkedChildId));
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogDebug(
-                    ex,
-                    "Ignore Empty Items: Unable to hydrate linked " +
-                    "children for unloaded folder {FolderId}",
-                    item.Id);
+                // An unresolved entry is intentionally retained
+                // as an unknown edge. Dropping it would make a
+                // loaded container look empty and could delete
+                // the container.
+                linkedChildren.Add(new LinkedReference(childId));
             }
         }
 
@@ -241,6 +193,7 @@ public class ContainerCleaner(
                 childrenByParentId,
                 linkedChildrenByParentId,
                 hydratedLinkedChildrenFolders,
+                attemptedLinkedChildrenFolders,
                 evaluations);
 
             if (evaluation == EvaluationState.Unknown)
@@ -267,7 +220,7 @@ public class ContainerCleaner(
             }
             else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
-                    container, config.HideTag, cancellationToken))
+                    container, config, cancellationToken))
             {
                 changedCount++;
             }
@@ -393,14 +346,15 @@ public class ContainerCleaner(
         return false;
     }
 
-    private static EvaluationState Evaluate(
+    private EvaluationState Evaluate(
         Guid rootId,
         bool viaLinkedChild,
         IReadOnlyDictionary<Guid, BaseItem> itemsById,
         IReadOnlyDictionary<Guid, List<Guid>> childrenByParentId,
-        IReadOnlyDictionary<Guid, List<LinkedReference>>
+        IDictionary<Guid, List<LinkedReference>>
             linkedChildrenByParentId,
-        IReadOnlySet<Guid> hydratedLinkedChildrenFolders,
+        ISet<Guid> hydratedLinkedChildrenFolders,
+        ISet<Guid> attemptedLinkedChildrenFolders,
         IDictionary<EvaluationKey, EvaluationState> evaluations)
     {
         var rootKey = new EvaluationKey(rootId, viaLinkedChild);
@@ -409,6 +363,9 @@ public class ContainerCleaner(
             return rootEvaluation;
         }
 
+        // Unknown can depend on an active ancestor. Keep it local
+        // until the root's entire reachable graph is evaluated.
+        var unknownEvaluations = new HashSet<EvaluationKey>();
         var active = new HashSet<EvaluationKey>();
         var frames = new Stack<EvaluationFrame>();
         frames.Push(new EvaluationFrame(rootKey));
@@ -422,14 +379,17 @@ public class ContainerCleaner(
                 frame.WaitingFor = null;
                 frame.State = Combine(
                     frame.State,
-                    evaluations[waitingFor]);
+                    unknownEvaluations.Contains(waitingFor)
+                        ? EvaluationState.Unknown
+                        : evaluations[waitingFor]);
                 continue;
             }
 
             if (!itemsById.TryGetValue(frame.Key.ItemId, out var item))
             {
                 frame.State = EvaluationState.Unknown;
-                CompleteFrame(frames, active, evaluations);
+                CompleteFrame(
+                    frames, active, evaluations, unknownEvaluations);
                 continue;
             }
 
@@ -438,19 +398,63 @@ public class ContainerCleaner(
                 if (IsRealMedia(item))
                 {
                     frame.State = EvaluationState.RealMedia;
-                    CompleteFrame(frames, active, evaluations);
+                    CompleteFrame(
+                        frames, active, evaluations,
+                        unknownEvaluations);
                     continue;
                 }
 
                 if (item is Folder folder &&
-                    !folder.LinkedChildrenLoaded &&
-                    (item is BoxSet or Playlist ||
-                     !hydratedLinkedChildrenFolders.Contains(item.Id)))
+                    !folder.LinkedChildrenLoaded)
                 {
-                    frame.State = EvaluationState.Unknown;
+                    if (item is not BoxSet and not Playlist &&
+                        linkedChildrenService is not null &&
+                        attemptedLinkedChildrenFolders.Add(item.Id))
+                    {
+                        try
+                        {
+                            var linkedChildIds =
+                                linkedChildrenService
+                                    .GetLinkedChildrenIds(
+                                        item.Id, null);
+                            if (linkedChildIds is not null)
+                            {
+                                var hydratedLinks =
+                                    new List<LinkedReference>();
+                                foreach (var linkedChildId
+                                    in linkedChildIds)
+                                {
+                                    // Missing IDs remain unknown.
+                                    hydratedLinks.Add(
+                                        new LinkedReference(
+                                            linkedChildId));
+                                }
+
+                                linkedChildrenByParentId[item.Id] =
+                                    hydratedLinks;
+                                hydratedLinkedChildrenFolders.Add(
+                                    item.Id);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogDebug(
+                                ex,
+                                "Ignore Empty Items: Unable to " +
+                                "hydrate linked children for " +
+                                "unloaded folder {FolderId}",
+                                item.Id);
+                        }
+                    }
+
+                    if (item is BoxSet or Playlist ||
+                        !hydratedLinkedChildrenFolders.Contains(
+                            item.Id))
+                    {
+                        frame.State = EvaluationState.Unknown;
+                    }
                 }
             }
-
             var edgeCount =
                 (childrenByParentId.TryGetValue(
                     frame.Key.ItemId, out var children)
@@ -462,7 +466,8 @@ public class ContainerCleaner(
                     : 0);
             if (frame.NextEdgeIndex >= edgeCount)
             {
-                CompleteFrame(frames, active, evaluations);
+                CompleteFrame(
+                    frames, active, evaluations, unknownEvaluations);
                 continue;
             }
 
@@ -490,9 +495,16 @@ public class ContainerCleaner(
 
             var childKey = new EvaluationKey(childId, isLinkedEdge);
             if (evaluations.TryGetValue(
-                childKey, out var childEvaluation))
+                    childKey, out var childEvaluation))
             {
                 frame.State = Combine(frame.State, childEvaluation);
+                continue;
+            }
+
+            if (unknownEvaluations.Contains(childKey))
+            {
+                frame.State = Combine(
+                    frame.State, EvaluationState.Unknown);
                 continue;
             }
 
@@ -508,17 +520,38 @@ public class ContainerCleaner(
             frames.Push(new EvaluationFrame(childKey));
         }
 
+        if (unknownEvaluations.Contains(rootKey))
+        {
+            // A media-free root has reached every local unknown
+            // node without finding real media. Those unknowns are
+            // now stable across roots, including cyclic roots.
+            foreach (var key in unknownEvaluations)
+            {
+                evaluations[key] = EvaluationState.Unknown;
+            }
+
+            return EvaluationState.Unknown;
+        }
+
         return evaluations[rootKey];
     }
 
     private static void CompleteFrame(
         Stack<EvaluationFrame> frames,
         ISet<EvaluationKey> active,
-        IDictionary<EvaluationKey, EvaluationState> evaluations)
+        IDictionary<EvaluationKey, EvaluationState> evaluations,
+        ISet<EvaluationKey> unknownEvaluations)
     {
         var frame = frames.Pop();
         active.Remove(frame.Key);
-        evaluations[frame.Key] = frame.State;
+        if (frame.State == EvaluationState.Unknown)
+        {
+            unknownEvaluations.Add(frame.Key);
+        }
+        else
+        {
+            evaluations[frame.Key] = frame.State;
+        }
     }
 
     private static EvaluationState Combine(

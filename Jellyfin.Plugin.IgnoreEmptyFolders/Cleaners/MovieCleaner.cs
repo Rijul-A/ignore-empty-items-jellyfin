@@ -9,8 +9,12 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class MovieCleaner(
     ILibraryManager libraryManager,
-    ILogger<MovieCleaner> logger)
-    : BaseItemCleaner(libraryManager, logger)
+    ILogger<MovieCleaner> logger,
+    Func<PluginConfiguration, bool>? isConfigurationCurrent = null)
+    : BaseItemCleaner(
+        libraryManager,
+        logger,
+        isConfigurationCurrent)
 {
 
     public override double Weight => CleanupWeights.Movies;
@@ -45,7 +49,7 @@ public class MovieCleaner(
                 cancellationToken.ThrowIfCancellationRequested();
                 if (await UntagItemAsync(
                     movie,
-                    config.HideTag,
+                    config,
                     cancellationToken
                 ))
                 {

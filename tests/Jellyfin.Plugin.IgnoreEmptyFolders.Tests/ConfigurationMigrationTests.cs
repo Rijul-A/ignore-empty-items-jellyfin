@@ -554,6 +554,196 @@ public sealed class ConfigurationMigrationTests
         Assert.Contains(configurationC, savedConfigurations);
     }
 
+    [Fact]
+    public async Task
+        ReplacingConfigurationAfterFirstDeleteStopsCleanup()
+    {
+        var config = new PluginConfiguration
+        {
+            HideInsteadOfDelete = false,
+            DeleteEmptyShows = false,
+            DeleteEmptySeasons = false,
+            DeleteEmptyMovies = true,
+            DeleteEmptyMusicArtists = false,
+            DeleteEmptyMusicAlbums = false,
+            DeleteEmptyCollections = false,
+            DeleteEmptyFolders = false,
+            DeleteEmptyPlaylists = false
+        };
+        var plugin = CreatePlugin(config);
+        var first = new Movie
+        {
+            Id = Guid.NewGuid(),
+            IsVirtualItem = true
+        };
+        var second = new Movie
+        {
+            Id = Guid.NewGuid(),
+            IsVirtualItem = true
+        };
+        var library = new Mock<ILibraryManager>();
+        library
+            .Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) =>
+                query.IncludeItemTypes.Contains(BaseItemKind.Movie) &&
+                query.IsVirtualItem == true
+                    ? [first, second]
+                    : []);
+        library
+            .Setup(m => m.DeleteItem(
+                It.IsAny<BaseItem>(),
+                It.IsAny<DeleteOptions>()))
+            .Callback<BaseItem, DeleteOptions>((item, _) =>
+            {
+                Assert.Same(first, item);
+                plugin.UpdateConfiguration(
+                    new PluginConfiguration
+                    {
+                        HideInsteadOfDelete = true,
+                        HideTag = "new-tag",
+                        DeleteEmptyMovies = true
+                    });
+            });
+        var users = new Mock<IUserManager>();
+        users.Setup(m => m.GetUsers()).Returns([]);
+        var manager = new LibraryCleanupManager(
+            library.Object,
+            users.Object,
+            NullLoggerFactory.Instance);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => manager.CleanLibraryAsync(
+                new Progress<double>(),
+                TestContext.Current.CancellationToken));
+
+        library.Verify(
+            m => m.DeleteItem(first, It.IsAny<DeleteOptions>()),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(second, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReplacingConfigurationStopsFurtherTagChanges(
+        bool untag)
+    {
+        var config = new PluginConfiguration
+        {
+            HideInsteadOfDelete = true,
+            HideTag = "hidden",
+            PreviousHideTag = "hidden",
+            HideInsteadOfDeleteWasActive = true,
+            DeleteEmptyShows = false,
+            DeleteEmptySeasons = false,
+            DeleteEmptyMovies = true,
+            DeleteEmptyMusicArtists = false,
+            DeleteEmptyMusicAlbums = false,
+            DeleteEmptyCollections = false,
+            DeleteEmptyFolders = false,
+            DeleteEmptyPlaylists = false
+        };
+        var plugin = CreatePlugin(config);
+        var first = new Movie
+        {
+            Id = Guid.NewGuid(),
+            IsVirtualItem = !untag,
+            Tags = untag ? ["hidden"] : []
+        };
+        var second = new Movie
+        {
+            Id = Guid.NewGuid(),
+            IsVirtualItem = !untag,
+            Tags = untag ? ["hidden"] : []
+        };
+        var library = new Mock<ILibraryManager>();
+        library
+            .Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) =>
+            {
+                if (!query.IncludeItemTypes.Contains(
+                    BaseItemKind.Movie))
+                {
+                    return [];
+                }
+
+                if (untag && query.Tags.Contains("hidden"))
+                {
+                    return [first, second];
+                }
+
+                return !untag && query.IsVirtualItem == true
+                    ? [first, second]
+                    : [];
+            });
+        library
+            .Setup(m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<BaseItem, BaseItem, ItemUpdateType,
+                CancellationToken>((item, _, _, _) =>
+            {
+                Assert.Same(first, item);
+                plugin.UpdateConfiguration(
+                    new PluginConfiguration
+                    {
+                        HideInsteadOfDelete = false,
+                        DeleteEmptyMovies = true
+                    });
+            })
+            .Returns(Task.CompletedTask);
+        var users = new Mock<IUserManager>();
+        users.Setup(m => m.GetUsers()).Returns([]);
+        var manager = new LibraryCleanupManager(
+            library.Object,
+            users.Object,
+            NullLoggerFactory.Instance);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => manager.CleanLibraryAsync(
+                new Progress<double>(),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            untag ? Array.Empty<string>() : ["hidden"],
+            first.Tags);
+        Assert.Equal(
+            untag ? ["hidden"] : Array.Empty<string>(),
+            second.Tags);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                first,
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                second,
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(),
+                It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
     private static Plugin CreatePlugin(
         PluginConfiguration configuration,
         Action<object>? onSave = null)

@@ -9,8 +9,12 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class MusicCleaner(
     ILibraryManager libraryManager,
-    ILogger<MusicCleaner> logger)
-    : BaseItemCleaner(libraryManager, logger)
+    ILogger<MusicCleaner> logger,
+    Func<PluginConfiguration, bool>? isConfigurationCurrent = null)
+    : BaseItemCleaner(
+        libraryManager,
+        logger,
+        isConfigurationCurrent)
 {
     public override double Weight => CleanupWeights.Music;
 
@@ -92,7 +96,7 @@ public class MusicCleaner(
             else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
                     artist,
-                    config.HideTag,
+                    config,
                     cancellationToken
                 ))
             {
@@ -153,7 +157,7 @@ public class MusicCleaner(
             else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
                     album,
-                    config.HideTag,
+                    config,
                     cancellationToken
                 ))
             {

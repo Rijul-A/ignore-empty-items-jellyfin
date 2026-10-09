@@ -11,8 +11,10 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class SeriesCleaner(
     ILibraryManager libraryManager,
-    ILogger<SeriesCleaner> logger)
-    : BaseItemCleaner(libraryManager, logger)
+    ILogger<SeriesCleaner> logger,
+    Func<PluginConfiguration, bool>? isConfigurationCurrent = null)
+    : BaseItemCleaner(
+        libraryManager, logger, isConfigurationCurrent)
 {
     public override double Weight => CleanupWeights.Series;
 
@@ -48,10 +50,14 @@ public class SeriesCleaner(
         Dictionary<Guid, int> episodeCountsBySeries = [];
         Dictionary<Guid, int> episodeCountsBySeason = [];
         HashSet<Guid> uncertainSeriesIds = [];
+        HashSet<Guid> uncertainSeasonIds = [];
         var hasUnattributedEpisode = false;
+        var hasUnattributedSeasonEpisode = false;
         Dictionary<Guid, BaseItem> itemsById = [];
         HashSet<Guid> seriesIds = [];
         Dictionary<Guid, Guid?> owningSeriesByParentId = [];
+        Dictionary<Guid, Guid?> owningSeasonByParentId = [];
+        Dictionary<Guid, List<Season>> seasonsBySeries = [];
         if (config.DeleteEmptyShows || config.DeleteEmptySeasons)
         {
             // Metadata IDs can be stale. Index the physical parent
@@ -80,6 +86,46 @@ public class SeriesCleaner(
                 }
             }
 
+            HashSet<Guid> seasonIds = [];
+            if (config.DeleteEmptySeasons)
+            {
+                var seasons = LibraryManager.GetItemList(
+                    new InternalItemsQuery
+                    {
+                        IncludeItemTypes = [BaseItemKind.Season],
+                        DtoOptions = new DtoOptions(false)
+                    });
+
+                foreach (var season in seasons.OfType<Season>())
+                {
+                    if (!seasonIds.Add(season.Id))
+                    {
+                        continue;
+                    }
+
+                    var seriesId = FindOwningAncestorId(
+                        season.ParentId,
+                        itemsById,
+                        seriesIds,
+                        owningSeriesByParentId);
+                    if (!seriesId.HasValue)
+                    {
+                        // Do not assign unresolved seasons by metadata.
+                        continue;
+                    }
+
+                    if (!seasonsBySeries.TryGetValue(
+                        seriesId.Value, out var seriesSeasons
+                    ))
+                    {
+                        seriesSeasons = [];
+                        seasonsBySeries[seriesId.Value] = seriesSeasons;
+                    }
+
+                    seriesSeasons.Add(season);
+                }
+            }
+
             var episodes = LibraryManager.GetItemList(
                 new InternalItemsQuery
                 {
@@ -99,7 +145,7 @@ public class SeriesCleaner(
 
                 if (config.DeleteEmptyShows)
                 {
-                    var seriesId = FindOwningSeriesId(
+                    var seriesId = FindOwningAncestorId(
                         episode.ParentId,
                         itemsById,
                         seriesIds,
@@ -123,55 +169,39 @@ public class SeriesCleaner(
                     }
                 }
 
-                if (config.DeleteEmptySeasons &&
-                    episode.ParentId != Guid.Empty)
+                if (config.DeleteEmptySeasons)
                 {
-                    episodeCountsBySeason[episode.ParentId] =
-                        episodeCountsBySeason.GetValueOrDefault(
-                            episode.ParentId
-                        ) + 1;
+                    var seasonId = FindOwningAncestorId(
+                        episode.ParentId,
+                        itemsById,
+                        seasonIds,
+                        owningSeasonByParentId);
+                    if (seasonId.HasValue)
+                    {
+                        episodeCountsBySeason[seasonId.Value] =
+                            episodeCountsBySeason.GetValueOrDefault(
+                                seasonId.Value
+                            ) + 1;
+                    }
+                    else if (!FindOwningAncestorId(
+                        episode.ParentId,
+                        itemsById,
+                        seriesIds,
+                        owningSeriesByParentId).HasValue)
+                    {
+                        // A known series with no season is not
+                        // uncertain; otherwise protect candidates.
+                        if (episode.SeasonId != Guid.Empty &&
+                            seasonIds.Contains(episode.SeasonId))
+                        {
+                            uncertainSeasonIds.Add(episode.SeasonId);
+                        }
+                        else
+                        {
+                            hasUnattributedSeasonEpisode = true;
+                        }
+                    }
                 }
-            }
-        }
-
-        Dictionary<Guid, List<Season>> seasonsBySeries = [];
-        if (config.DeleteEmptySeasons)
-        {
-            var seasons = LibraryManager.GetItemList(
-                new InternalItemsQuery
-                {
-                    IncludeItemTypes = [BaseItemKind.Season],
-                    DtoOptions = new DtoOptions(false)
-                });
-
-            var seasonIds = new HashSet<Guid>();
-            foreach (var season in seasons.OfType<Season>())
-            {
-                if (!seasonIds.Add(season.Id))
-                {
-                    continue;
-                }
-
-                var seriesId = FindOwningSeriesId(
-                    season.ParentId,
-                    itemsById,
-                    seriesIds,
-                    owningSeriesByParentId);
-                if (!seriesId.HasValue)
-                {
-                    // Do not assign unresolved seasons by metadata.
-                    continue;
-                }
-
-                if (!seasonsBySeries.TryGetValue(
-                    seriesId.Value, out var seriesSeasons
-                ))
-                {
-                    seriesSeasons = [];
-                    seasonsBySeries[seriesId.Value] = seriesSeasons;
-                }
-
-                seriesSeasons.Add(season);
             }
         }
 
@@ -214,7 +244,7 @@ public class SeriesCleaner(
                     config.HideInsteadOfDelete &&
                     await UntagItemAsync(
                         series,
-                        config.HideTag,
+                        config,
                         cancellationToken
                     ))
                 {
@@ -224,7 +254,7 @@ public class SeriesCleaner(
             else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
                     series,
-                    config.HideTag,
+                    config,
                     cancellationToken
                 ))
             {
@@ -240,7 +270,9 @@ public class SeriesCleaner(
                     config,
                     cancellationToken,
                     seriesSeasons,
-                    episodeCountsBySeason
+                    episodeCountsBySeason,
+                    uncertainSeasonIds,
+                    hasUnattributedSeasonEpisode
                 );
             }
 
@@ -252,10 +284,10 @@ public class SeriesCleaner(
 
     // Return null for missing or cyclic parent chains. Metadata
     // only protects candidates when physical ownership is unknown.
-    private static Guid? FindOwningSeriesId(
+    private static Guid? FindOwningAncestorId(
         Guid parentId,
         IReadOnlyDictionary<Guid, BaseItem> itemsById,
-        IReadOnlySet<Guid> seriesIds,
+        IReadOnlySet<Guid> ancestorIds,
         IDictionary<Guid, Guid?> ownershipCache)
     {
         if (parentId == Guid.Empty)
@@ -266,22 +298,22 @@ public class SeriesCleaner(
         var path = new List<Guid>();
         var pathIds = new HashSet<Guid>();
         var currentId = parentId;
-        Guid? owningSeriesId = null;
+        Guid? owningAncestorId = null;
 
         while (currentId != Guid.Empty &&
             pathIds.Add(currentId))
         {
             if (ownershipCache.TryGetValue(
-                currentId, out owningSeriesId
+                currentId, out owningAncestorId
             ))
             {
                 break;
             }
 
             path.Add(currentId);
-            if (seriesIds.Contains(currentId))
+            if (ancestorIds.Contains(currentId))
             {
-                owningSeriesId = currentId;
+                owningAncestorId = currentId;
                 break;
             }
 
@@ -297,17 +329,19 @@ public class SeriesCleaner(
 
         foreach (var itemId in path)
         {
-            ownershipCache[itemId] = owningSeriesId;
+            ownershipCache[itemId] = owningAncestorId;
         }
 
-        return owningSeriesId;
+        return owningAncestorId;
     }
 
     private async Task<int> CleanSeasonsAsync(
         PluginConfiguration config,
         CancellationToken cancellationToken,
         IReadOnlyList<Season> seasons,
-        IReadOnlyDictionary<Guid, int> episodeCountsBySeason)
+        IReadOnlyDictionary<Guid, int> episodeCountsBySeason,
+        IReadOnlySet<Guid> uncertainSeasonIds,
+        bool hasUnattributedSeasonEpisode)
     {
         var changedCount = 0;
 
@@ -323,7 +357,9 @@ public class SeriesCleaner(
             var episodeCount =
                 episodeCountsBySeason.GetValueOrDefault(season.Id);
 
-            if (episodeCount == 0)
+            if (episodeCount == 0 &&
+                !hasUnattributedSeasonEpisode &&
+                !uncertainSeasonIds.Contains(season.Id))
             {
                 if (await HideOrDeleteItemAsync(
                     season,
@@ -334,10 +370,11 @@ public class SeriesCleaner(
                     changedCount++;
                 }
             }
-            else if (config.HideInsteadOfDelete &&
+            else if (episodeCount > 0 &&
+                config.HideInsteadOfDelete &&
                 await UntagItemAsync(
                     season,
-                    config.HideTag,
+                    config,
                     cancellationToken
                 ))
             {

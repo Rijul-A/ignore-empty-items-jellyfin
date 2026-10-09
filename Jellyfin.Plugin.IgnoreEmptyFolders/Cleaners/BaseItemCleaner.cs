@@ -10,10 +10,25 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 /// </summary>
 public abstract class BaseItemCleaner(
     ILibraryManager libraryManager,
-    ILogger logger) : IItemCleaner
+    ILogger logger,
+    Func<PluginConfiguration, bool>? isConfigurationCurrent = null)
+    : IItemCleaner
 {
     protected readonly ILibraryManager LibraryManager = libraryManager;
     protected readonly ILogger Logger = logger;
+
+    private void ThrowIfConfigurationStale(
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (isConfigurationCurrent is not null &&
+            !isConfigurationCurrent(config))
+        {
+            throw new OperationCanceledException(
+                "Plugin configuration changed during cleanup.");
+        }
+    }
 
     public abstract double Weight
     {
@@ -64,14 +79,12 @@ public abstract class BaseItemCleaner(
 
         if (config.HideInsteadOfDelete)
         {
-            return await TagItemAsync(
-                item,
-                config.HideTag,
-                cancellationToken);
+            return await TagItemAsync(item, config, cancellationToken);
         }
 
         try
         {
+            ThrowIfConfigurationStale(config, cancellationToken);
             LibraryManager.DeleteItem(
                 item,
                 new DeleteOptions
@@ -98,18 +111,21 @@ public abstract class BaseItemCleaner(
 
     protected async Task<bool> TagItemAsync(
         BaseItem item,
-        string tag,
+        PluginConfiguration config,
         CancellationToken cancellationToken
     )
     {
+        var tag = config.HideTag;
         if (string.IsNullOrWhiteSpace(tag))
             return false;
         if (HasTag(item, tag))
             return false;
+        ThrowIfConfigurationStale(config, cancellationToken);
         var originalTags = item.Tags;
         item.Tags = [.. originalTags, tag];
         try
         {
+            ThrowIfConfigurationStale(config, cancellationToken);
             await LibraryManager.UpdateItemAsync(
                 item,
                 item.GetParent(),
@@ -127,18 +143,21 @@ public abstract class BaseItemCleaner(
 
     protected async Task<bool> UntagItemAsync(
         BaseItem item,
-        string tag,
+        PluginConfiguration config,
         CancellationToken cancellationToken
     )
     {
+        var tag = config.HideTag;
         if (!HasTag(item, tag))
             return false;
+        ThrowIfConfigurationStale(config, cancellationToken);
         var originalTags = item.Tags;
         item.Tags = [.. originalTags
             .Where(t => !t.Equals(
                 tag, StringComparison.OrdinalIgnoreCase))];
         try
         {
+            ThrowIfConfigurationStale(config, cancellationToken);
             await LibraryManager.UpdateItemAsync(
                 item,
                 item.GetParent(),
