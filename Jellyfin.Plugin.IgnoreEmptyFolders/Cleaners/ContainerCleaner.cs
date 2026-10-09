@@ -61,61 +61,36 @@ public class ContainerCleaner(
             cancellationToken.ThrowIfCancellationRequested();
 
             var container = containers[i];
-            var isEmpty = false;
-
             var typeName = container.GetType().Name;
-            if (typeName == "BoxSet" || typeName == "Playlist")
+            if ((typeName == "BoxSet" || typeName == "Playlist") &&
+                container is Folder folder &&
+                !folder.LinkedChildrenLoaded)
             {
-                if (container is Folder folder)
+                Logger.LogDebug(
+                    "Ignore Empty Items: Skipping {Type} " +
+                    "\"{Name}\" because linked children are " +
+                    "not loaded",
+                    typeName,
+                    container.Name);
+                ReportProgress(progress, i + 1, total);
+                continue;
+            }
+
+            // Count only real media leaves. Jellyfin translates this
+            // recursive query to linked descendants for loaded BoxSets
+            // and Playlists.
+            var childCount = LibraryManager.GetCount(
+                new InternalItemsQuery
                 {
-                    if (!folder.LinkedChildrenLoaded)
-                    {
-                        Logger.LogDebug(
-                            "Ignore Empty Items: Skipping {Type} " +
-                            "\"{Name}\" because linked children are " +
-                            "not loaded",
-                            typeName,
-                            container.Name);
-                        ReportProgress(progress, i + 1, total);
-                        continue;
-                    }
-
-                    var links = folder.LinkedChildren;
-                    isEmpty = links.Length == 0;
-                    if (!isEmpty)
-                    {
-                        var itemIds = links
-                            .Where(l => l.ItemId.HasValue)
-                            .Select(l => l.ItemId!.Value)
-                            .ToArray();
-
-                        var mediaCount = LibraryManager.GetCount(
-                            new InternalItemsQuery
-                            {
-                                ItemIds = itemIds,
-                                IsVirtualItem = false,
-                                IsMissing = false,
-                                DtoOptions = new DtoOptions(false)
-                            });
-
-                        isEmpty = mediaCount == 0;
-                    }
-                }
-            }
-            else
-            {
-                var childCount = LibraryManager.GetCount(
-                    new InternalItemsQuery
-                    {
-                        ParentId = container.Id,
-                        Recursive = true,
-                        IsVirtualItem = false,
-                        IsMissing = false,
-                        Limit = 0,
-                        DtoOptions = new DtoOptions(false)
-                    });
-                isEmpty = childCount == 0;
-            }
+                    ParentId = container.Id,
+                    Recursive = true,
+                    IsFolder = false,
+                    IsVirtualItem = false,
+                    IsMissing = false,
+                    Limit = 0,
+                    DtoOptions = new DtoOptions(false)
+                });
+            var isEmpty = childCount == 0;
 
             if (isEmpty)
             {

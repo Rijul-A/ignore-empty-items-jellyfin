@@ -85,8 +85,9 @@ Requires the .NET 10 SDK and ASP.NET Core runtime:
 make test
 ```
 
-The tests cover unloaded linked containers, hide mode, delete mode, and
-non-empty container preservation.
+The tests cover unloaded linked containers, hide mode, delete mode,
+non-empty container preservation, nested and metadata-only folders,
+deeply nested media, virtual/missing media, BoxSets, and Playlists.
 
 The lint suite also checks shell scripts, YAML, GitHub Actions, and the
 Makefile. On Arch/CachyOS, install the packaged tools with:
