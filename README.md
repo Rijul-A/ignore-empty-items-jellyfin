@@ -186,9 +186,7 @@ cleaner phases remain sequential for predictable progress reporting.
 ### How emptiness is determined
 
 Items are considered empty when they contain **zero** relevant media or
-child items that are:
-- Non-virtual (not metadata-only placeholders)
-- Non-missing (not marked as unavailable)
+child items that are non-virtual/non-missing media with an actual path.
 
 In hide mode, empty items receive the hide tag and are hidden from users
 whose policies block that tag. In delete mode, the Jellyfin database
