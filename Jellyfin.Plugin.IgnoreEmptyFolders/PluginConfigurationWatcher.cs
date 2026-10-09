@@ -8,7 +8,8 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders;
 public class PluginConfigurationWatcher(
     ILibraryManager libraryManager,
     IUserManager userManager,
-    ILoggerFactory loggerFactory) : IHostedService
+    ILoggerFactory loggerFactory,
+    ILogger<PluginConfigurationWatcher> logger) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -35,12 +36,22 @@ public class PluginConfigurationWatcher(
     private async void OnConfigurationChanged(
         object? sender, BasePluginConfiguration e)
     {
-        var manager = new LibraryCleanupManager(
-            libraryManager,
-            userManager,
-            loggerFactory);
+        try
+        {
+            var manager = new LibraryCleanupManager(
+                libraryManager,
+                userManager,
+                loggerFactory);
 
-        await manager.HandleConfigurationChangedAsync(
-            CancellationToken.None);
+            await manager.HandleConfigurationChangedAsync(
+                CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Ignore Empty Items: Failed to handle " +
+                "configuration change");
+        }
     }
 }

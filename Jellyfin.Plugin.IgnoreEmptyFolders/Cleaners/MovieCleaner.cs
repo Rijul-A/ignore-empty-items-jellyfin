@@ -25,6 +25,7 @@ public class MovieCleaner(
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
+        var changedCount = 0;
         if (config.HideInsteadOfDelete)
         {
             // movies that have the tag and are neither virtual
@@ -42,11 +43,14 @@ public class MovieCleaner(
             foreach (var movie in taggedMovies)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await UntagItemAsync(
+                if (await UntagItemAsync(
                     movie,
                     config.HideTag,
                     cancellationToken
-                );
+                ))
+                {
+                    changedCount++;
+                }
             }
         }
 
@@ -72,7 +76,6 @@ public class MovieCleaner(
             "Ignore Empty Items: Checking {Count} empty movies",
             allEmptyMovies.Count);
 
-        var removedCount = 0;
         var total = allEmptyMovies.Count;
 
         for (var i = 0; i < total; i++)
@@ -81,47 +84,18 @@ public class MovieCleaner(
 
             var movie = allEmptyMovies[i];
 
-            if (config.LogDeletions)
+            if (await HideOrDeleteItemAsync(
+                movie,
+                "movie",
+                config,
+                cancellationToken))
             {
-                Logger.LogInformation(
-                    "Ignore Empty Items: Removing movie \"{Name}\"",
-                    movie.Name);
-            }
-
-            if (config.HideInsteadOfDelete)
-            {
-                if (await TagItemAsync(
-                    movie, config.HideTag, cancellationToken))
-                {
-                    removedCount++;
-                }
-            }
-            else
-            {
-                try
-                {
-                    LibraryManager.DeleteItem(
-                        movie,
-                        new DeleteOptions
-                        {
-                            DeleteFileLocation = false
-                        }
-                    );
-                    removedCount++;
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(
-                        ex,
-                        "Ignore Empty Items: Failed to remove " +
-                        "movie \"{Name}\"",
-                        movie.Name);
-                }
+                changedCount++;
             }
 
             ReportProgress(progress, i + 1, total);
         }
 
-        return removedCount;
+        return changedCount;
     }
 }

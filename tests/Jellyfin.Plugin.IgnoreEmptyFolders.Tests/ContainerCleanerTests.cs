@@ -21,12 +21,12 @@ public sealed class ContainerCleanerTests
         };
         var library = CreateLibrary([playlist], [playlist]);
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             CreateConfig(),
             null,
             CancellationToken.None);
 
-        Assert.Equal(0, removed);
+        Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(
@@ -55,11 +55,42 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(
+            m => m.DeleteItem(
+                playlist,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task FailedDeleteIsNotCounted()
+    {
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren = []
+        };
+        var library = CreateLibrary([playlist], [playlist]);
+        library
+            .Setup(m => m.DeleteItem(
+                playlist, It.IsAny<DeleteOptions>()
+            ))
+            .Throws(new InvalidOperationException("Delete failed."));
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(
@@ -75,7 +106,8 @@ public sealed class ContainerCleanerTests
         var media = new Movie
         {
             Id = Guid.NewGuid(),
-            Name = "Movie"
+            Name = "Movie",
+            Path = "/media/playlist-movie.mkv"
         };
         var playlist = new MediaBrowser.Controller.Playlists.Playlist
         {
@@ -89,17 +121,54 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(0, removed);
+        Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
             ),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UnresolvedPlaylistChildIsPreserved()
+    {
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = Guid.NewGuid() }
+            ]
+        };
+        var library = CreateLibrary([playlist], [playlist]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(0, changedCount);
+        Assert.DoesNotContain(config.HideTag, playlist.Tags);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
+            ),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -114,12 +183,12 @@ public sealed class ContainerCleanerTests
 
         var library = CreateLibrary([boxSet], [boxSet]);
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             CreateConfig(),
             null,
             CancellationToken.None);
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
         Assert.Contains(CreateConfig().HideTag, boxSet.Tags);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
@@ -145,12 +214,12 @@ public sealed class ContainerCleanerTests
         };
         var library = CreateLibrary([boxSet], [boxSet]);
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config,
             null,
             CancellationToken.None);
 
-        Assert.Equal(0, removed);
+        Assert.Equal(0, changedCount);
         Assert.Contains(config.HideTag, boxSet.Tags);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
@@ -164,12 +233,134 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
+    public async Task TaggedBoxSetWithMediaIsUntaggedAndCounted()
+    {
+        var config = CreateConfig();
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Previously hidden movie",
+            Path = "/media/previously-hidden-movie.mkv"
+        };
+        var boxSet = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = media.Id }
+            ],
+            Tags = [config.HideTag]
+        };
+        var library = CreateLibrary([boxSet], [boxSet, media]);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        Assert.DoesNotContain(config.HideTag, boxSet.Tags);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                boxSet,
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
+            ),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task FailedHideUpdatePropagatesAndRollsBack()
+    {
+        var config = CreateConfig();
+        var boxSet = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren = []
+        };
+        var library = CreateLibrary([boxSet], [boxSet]);
+        library
+            .Setup(m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(
+                new InvalidOperationException("Update failed.")
+            );
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => CreateCleaner(library).CleanAsync(
+                config, null, CancellationToken.None));
+        Assert.DoesNotContain(config.HideTag, boxSet.Tags);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                boxSet,
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task FailedUnhideUpdatePreservesTagAndCount()
+    {
+        var config = CreateConfig();
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Visible movie",
+            Path = "/media/visible-movie.mkv"
+        };
+        var boxSet = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = media.Id }
+            ],
+            Tags = [config.HideTag]
+        };
+        var library = CreateLibrary([boxSet], [boxSet, media]);
+        library
+            .Setup(m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(
+                new InvalidOperationException("Update failed.")
+            );
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => CreateCleaner(library).CleanAsync(
+                config, null, CancellationToken.None));
+        Assert.Contains(config.HideTag, boxSet.Tags);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                boxSet,
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task BoxSetWithMediaIsPreserved()
     {
         var media = new Movie
         {
             Id = Guid.NewGuid(),
-            Name = "Movie"
+            Name = "Movie",
+            Path = "/media/box-set-movie.mkv"
         };
         var boxSet = new BoxSet
         {
@@ -183,11 +374,11 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(0, removed);
+        Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(
@@ -196,6 +387,44 @@ public sealed class ContainerCleanerTests
             ),
             Times.Never);
     }
+
+    [Fact]
+    public async Task LoadedBoxSetWithUnresolvedLinkedChildIsPreserved()
+    {
+        var boxSet = new BoxSet
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = Guid.NewGuid() }
+            ]
+        };
+        var library = CreateLibrary([boxSet], [boxSet]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(0, changedCount);
+        Assert.DoesNotContain(config.HideTag, boxSet.Tags);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
+            ),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task PlaylistWithNestedLinkedMediaIsNotDeleted()
     {
@@ -208,7 +437,8 @@ public sealed class ContainerCleanerTests
         {
             Id = Guid.NewGuid(),
             Name = "Nested linked movie",
-            ParentId = linkedFolder.Id
+            ParentId = linkedFolder.Id,
+            Path = "/media/nested-linked-movie.mkv"
         };
         var playlist = new MediaBrowser.Controller.Playlists.Playlist
         {
@@ -224,11 +454,11 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(0, removed);
+        Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(
@@ -252,11 +482,11 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(
@@ -290,11 +520,11 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(
@@ -326,7 +556,8 @@ public sealed class ContainerCleanerTests
         {
             Id = Guid.NewGuid(),
             Name = "Real movie",
-            ParentId = deep.Id
+            ParentId = deep.Id,
+            Path = "/media/deeply-nested-movie.mkv"
         };
         var library = CreateLibrary(
             [root], [root, nested, deep, media]
@@ -334,11 +565,11 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(0, removed);
+        Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(
@@ -372,11 +603,11 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(m => m.DeleteItem(
@@ -404,19 +635,22 @@ public sealed class ContainerCleanerTests
             Id = Guid.NewGuid(),
             Name = "Missing episode",
             ParentId = nested.Id,
-            IsVirtualItem = true
+            IsVirtualItem = false,
+            Path = null
         };
+        Assert.False(missingEpisode.IsVirtualItem);
+        Assert.Null(missingEpisode.Path);
         var library = CreateLibrary(
             [root], [root, nested, missingEpisode]
         );
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkGraphLookupOnce(library);
         library.Verify(

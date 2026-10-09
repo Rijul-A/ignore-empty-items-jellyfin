@@ -45,7 +45,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool DeleteEmptyPlaylists { get; set; } = true;
 
     /// <summary>
-    /// Log when items are deleted.
+    /// Log cleanup changes.
     /// </summary>
     public bool LogDeletions { get; set; } = true;
 

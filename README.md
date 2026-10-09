@@ -159,7 +159,7 @@ Go to **Dashboard > Plugins > Ignore Empty Items** to configure:
 | Delete empty collections | On | Remove empty boxsets/collections. |
 | Delete empty folders | On | Remove folders with no media files. |
 | Delete empty playlists | On | Remove playlists with no items. |
-| Log removed items | On | Write a log entry for each removal. |
+| Log cleanup changes | On | Write a log entry for each hidden or removed item. |
 | Hide instead of delete | On | Tag empty items instead of removing them, and automatically block the tag for regular users. Prevents repeated "item added" webhook notifications. |
 | Skip admins for hide tag | On | Do not block the hide tag for administrators, allowing them to see hidden items. |
 | Hide tag | `plugin-ignore-empty-items-hidden` | The tag applied to empty items when hide mode is enabled. |

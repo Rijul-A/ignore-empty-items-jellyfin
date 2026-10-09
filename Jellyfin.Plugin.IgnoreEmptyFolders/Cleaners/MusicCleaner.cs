@@ -25,23 +25,23 @@ public class MusicCleaner(
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        var removedCount = 0;
+        var changedCount = 0;
 
         if (config.DeleteEmptyMusicArtists)
         {
-            removedCount += await CleanArtistsAsync(
+            changedCount += await CleanArtistsAsync(
                 config, progress, cancellationToken
             );
         }
 
         if (config.DeleteEmptyMusicAlbums)
         {
-            removedCount += await CleanAlbumsAsync(
+            changedCount += await CleanAlbumsAsync(
                 config, progress, cancellationToken
             );
         }
 
-        return removedCount;
+        return changedCount;
     }
 
     private async Task<int> CleanArtistsAsync(
@@ -49,7 +49,7 @@ public class MusicCleaner(
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        var removedCount = 0;
+        var changedCount = 0;
         var artists = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
@@ -80,60 +80,29 @@ public class MusicCleaner(
 
             if (albumCount == 0)
             {
-                if (config.LogDeletions)
+                if (await HideOrDeleteItemAsync(
+                    artist,
+                    "artist",
+                    config,
+                    cancellationToken))
                 {
-                    Logger.LogInformation(
-                        "Ignore Empty Items: Hiding/removing " +
-                        "artist \"{Name}\"",
-                        artist.Name);
-                }
-
-                if (config.HideInsteadOfDelete)
-                {
-                    if (await TagItemAsync(
-                        artist,
-                        config.HideTag,
-                        cancellationToken
-                    ))
-                    {
-                        removedCount++;
-                    }
-                }
-                else
-                {
-                    try
-                    {
-                        LibraryManager.DeleteItem(
-                            artist,
-                            new DeleteOptions
-                            {
-                                DeleteFileLocation = false
-                            });
-                        removedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(
-                            ex,
-                        "Ignore Empty Items: Failed to remove " +
-                            "artist \"{Name}\"",
-                            artist.Name);
-                    }
+                    changedCount++;
                 }
             }
-            else if (config.HideInsteadOfDelete)
-            {
+            else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
                     artist,
                     config.HideTag,
                     cancellationToken
-                );
+                ))
+            {
+                changedCount++;
             }
 
             ReportProgress(progress, ++processed, total);
         }
 
-        return removedCount;
+        return changedCount;
     }
 
     private async Task<int> CleanAlbumsAsync(
@@ -141,7 +110,7 @@ public class MusicCleaner(
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        var removedCount = 0;
+        var changedCount = 0;
         var albums = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
@@ -172,59 +141,28 @@ public class MusicCleaner(
 
             if (trackCount == 0)
             {
-                if (config.LogDeletions)
+                if (await HideOrDeleteItemAsync(
+                    album,
+                    "album",
+                    config,
+                    cancellationToken))
                 {
-                    Logger.LogInformation(
-                    "Ignore Empty Items: Hiding/removing album " +
-                        "\"{Name}\"",
-                        album.Name);
-                }
-
-                if (config.HideInsteadOfDelete)
-                {
-                    if (await TagItemAsync(
-                        album,
-                        config.HideTag,
-                        cancellationToken
-                    ))
-                    {
-                        removedCount++;
-                    }
-                }
-                else
-                {
-                    try
-                    {
-                        LibraryManager.DeleteItem(
-                            album,
-                            new DeleteOptions
-                            {
-                                DeleteFileLocation = false
-                            });
-                        removedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(
-                            ex,
-                        "Ignore Empty Items: Failed to remove " +
-                            "album \"{Name}\"",
-                            album.Name);
-                    }
+                    changedCount++;
                 }
             }
-            else if (config.HideInsteadOfDelete)
-            {
+            else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
                     album,
                     config.HideTag,
                     cancellationToken
-                );
+                ))
+            {
+                changedCount++;
             }
 
             ReportProgress(progress, ++processed, total);
         }
 
-        return removedCount;
+        return changedCount;
     }
 }

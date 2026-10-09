@@ -20,12 +20,12 @@ public sealed class SeriesCleanerTests
 
         var config = CreateConfig();
         config.DeleteEmptySeasons = false;
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config,
             null,
             CancellationToken.None);
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
         Assert.Contains(
             "plugin-ignore-empty-items-hidden",
             series.Tags
@@ -65,11 +65,11 @@ public sealed class SeriesCleanerTests
         config.DeleteEmptySeasons = false;
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkLookupsOnce(
             library, episodeLookup: 1, seasonLookup: 0
@@ -105,11 +105,11 @@ public sealed class SeriesCleanerTests
         config.DeleteEmptySeasons = false;
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(1, removed);
+        Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkLookupsOnce(
             library, episodeLookup: 1, seasonLookup: 0
@@ -172,11 +172,11 @@ public sealed class SeriesCleanerTests
         config.DeleteEmptyShows = false;
         config.HideInsteadOfDelete = false;
 
-        var removed = await CreateCleaner(library).CleanAsync(
+        var changedCount = await CreateCleaner(library).CleanAsync(
             config, null, CancellationToken.None
         );
 
-        Assert.Equal(2, removed);
+        Assert.Equal(2, changedCount);
         AssertNoScalarCounts(library);
         AssertBulkLookupsOnce(
             library, episodeLookup: 1, seasonLookup: 1

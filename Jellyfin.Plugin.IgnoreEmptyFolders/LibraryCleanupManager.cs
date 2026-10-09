@@ -137,7 +137,7 @@ public class LibraryCleanupManager(
         }
 
         var totalWeight = enabledCleaners.Sum(c => c.Weight);
-        var removedCount = 0;
+        var changedCount = 0;
         double currentStart = 0;
 
         foreach (var cleaner in enabledCleaners)
@@ -156,17 +156,16 @@ public class LibraryCleanupManager(
                 progress.Report(globalProgress * 100.0 / totalWeight);
             });
 
-            removedCount += await cleaner.CleanAsync(
+            changedCount += await cleaner.CleanAsync(
                 config,
                 relativeProgress,
                 cancellationToken);
-
             currentStart += cleanerWeight;
         }
 
         _logger.LogInformation(
-            "Ignore Empty Items: Total removed {Count} empty items",
-            removedCount);
+            "Ignore Empty Items: Total changed {Count} empty items",
+            changedCount);
 
         progress.Report(100);
     }

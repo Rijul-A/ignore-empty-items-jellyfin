@@ -29,24 +29,24 @@ public class ContainerCleaner(
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        var removedCount = 0;
-        var types = new List<BaseItemKind>();
+        var changedCount = 0;
+        var containerTypes = new List<BaseItemKind>();
         if (config.DeleteEmptyCollections)
         {
-            types.Add(BaseItemKind.BoxSet);
+            containerTypes.Add(BaseItemKind.BoxSet);
         }
 
         if (config.DeleteEmptyFolders)
         {
-            types.Add(BaseItemKind.Folder);
+            containerTypes.Add(BaseItemKind.Folder);
         }
 
         if (config.DeleteEmptyPlaylists)
         {
-            types.Add(BaseItemKind.Playlist);
+            containerTypes.Add(BaseItemKind.Playlist);
         }
 
-        if (types.Count == 0)
+        if (containerTypes.Count == 0)
         {
             return 0;
         }
@@ -54,7 +54,7 @@ public class ContainerCleaner(
         var containers = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
-                IncludeItemTypes = [.. types],
+                IncludeItemTypes = [.. containerTypes],
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -68,14 +68,14 @@ public class ContainerCleaner(
 
         // Snapshot the item graph once; each container is indexed in
         // memory.
-        var allItems = LibraryManager.GetItemList(
+        var libraryItems = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
                 DtoOptions = new DtoOptions(false)
             });
 
         var itemsById = new Dictionary<Guid, BaseItem>();
-        foreach (var item in allItems)
+        foreach (var item in libraryItems)
         {
             itemsById.TryAdd(item.Id, item);
         }
@@ -109,7 +109,7 @@ public class ContainerCleaner(
 
         var linkedChildrenByParentId =
             new Dictionary<Guid, List<Guid>>();
-        foreach (var item in allItems.Concat(containers))
+        foreach (var item in libraryItems.Concat(containers))
         {
             if (
                 item is not Folder { LinkedChildrenLoaded: true }
@@ -145,7 +145,12 @@ public class ContainerCleaner(
             cancellationToken.ThrowIfCancellationRequested();
 
             var container = containers[i];
-            var typeName = container.GetType().Name;
+            var containerTypeLabel = container switch
+            {
+                BoxSet => nameof(BoxSet),
+                Playlist => nameof(Playlist),
+                _ => nameof(Folder)
+            };
             if (container is BoxSet or Playlist &&
                 container is Folder folder &&
                 !folder.LinkedChildrenLoaded)
@@ -154,99 +159,90 @@ public class ContainerCleaner(
                     "Ignore Empty Items: Skipping {Type} " +
                     "\"{Name}\" because linked children are " +
                     "not loaded",
-                    typeName,
+                    containerTypeLabel,
                     container.Name);
                 ReportProgress(progress, i + 1, total);
                 continue;
             }
 
-            var childCount = CountRealMediaDescendants(
+            var hasRealMedia = HasRealMediaDescendant(
                 container.Id,
                 itemsById,
                 childrenByParentId,
-                linkedChildrenByParentId);
-            var isEmpty = childCount == 0;
-
-            if (isEmpty)
+                linkedChildrenByParentId,
+                out var unresolvedLinkedChild);
+            if (!hasRealMedia &&
+                unresolvedLinkedChild &&
+                container is BoxSet or Playlist)
             {
-                if (config.LogDeletions)
-                {
-                    Logger.LogInformation(
-                        "Ignore Empty Items: Hiding/removing " +
-                        "{Type} \"{Name}\"",
-                        container.GetType().Name,
-                        container.Name);
-                }
+                Logger.LogDebug(
+                    "Ignore Empty Items: Skipping {Type} " +
+                    "\"{Name}\" because a linked child is unresolved",
+                    containerTypeLabel,
+                    container.Name);
+                ReportProgress(progress, i + 1, total);
+                continue;
+            }
 
-                if (config.HideInsteadOfDelete)
+            if (!hasRealMedia)
+            {
+                if (await HideOrDeleteItemAsync(
+                    container,
+                    containerTypeLabel,
+                    config,
+                    cancellationToken))
                 {
-                    if (await TagItemAsync(
-                        container,
-                        config.HideTag,
-                        cancellationToken
-                    ))
-                    {
-                        removedCount++;
-                    }
-                }
-                else
-                {
-                    try
-                    {
-                        LibraryManager.DeleteItem(
-                            container,
-                            new DeleteOptions
-                            {
-                                DeleteFileLocation = false
-                            });
-                        removedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(
-                            ex,
-                            "Ignore Empty Items: Failed to remove " +
-                            "{Type} \"{Name}\"",
-                            container.GetType().Name,
-                            container.Name);
-                    }
+                    changedCount++;
                 }
             }
-            else if (config.HideInsteadOfDelete)
-            {
+            else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
-                    container, config.HideTag, cancellationToken);
+                    container, config.HideTag, cancellationToken))
+            {
+                changedCount++;
             }
 
             ReportProgress(progress, i + 1, total);
         }
 
-        return removedCount;
+        return changedCount;
     }
 
-    private static int CountRealMediaDescendants(
+    private static bool HasRealMediaDescendant(
         Guid rootId,
         IReadOnlyDictionary<Guid, BaseItem> itemsById,
         IReadOnlyDictionary<Guid, List<Guid>> childrenByParentId,
-        IReadOnlyDictionary<Guid, List<Guid>> linkedChildrenByParentId)
+        IReadOnlyDictionary<Guid, List<Guid>> linkedChildrenByParentId,
+        out bool unresolvedLinkedChild)
     {
-        var pending = new Stack<Guid>();
+        var pending = new Stack<(Guid ItemId, bool IsLinkedChild)>();
         var visited = new HashSet<Guid>();
-        pending.Push(rootId);
+        var unresolvedLinkedChildIds = new HashSet<Guid>();
+        pending.Push((rootId, false));
 
-        var count = 0;
         while (pending.Count > 0)
         {
-            var itemId = pending.Pop();
-            if (!visited.Add(itemId) ||
-                !itemsById.TryGetValue(itemId, out var item))
+            var (itemId, isLinkedChild) = pending.Pop();
+            if (!itemsById.TryGetValue(itemId, out var item))
+            {
+                if (isLinkedChild)
+                {
+                    unresolvedLinkedChildIds.Add(itemId);
+                }
+
+                continue;
+            }
+
+            if (!visited.Add(itemId))
             {
                 continue;
             }
 
-            if (!item.IsFolder && !item.IsVirtualItem)
+            if (IsRealMedia(item))
             {
-                count++;
+                unresolvedLinkedChild =
+                    unresolvedLinkedChildIds.Count > 0;
+                return true;
             }
 
             if (childrenByParentId.TryGetValue(
@@ -255,7 +251,7 @@ public class ContainerCleaner(
             {
                 foreach (var childId in children)
                 {
-                    pending.Push(childId);
+                    pending.Push((childId, false));
                 }
             }
 
@@ -265,11 +261,13 @@ public class ContainerCleaner(
             {
                 foreach (var childId in linkedChildren)
                 {
-                    pending.Push(childId);
+                    pending.Push((childId, true));
                 }
             }
         }
 
-        return count;
+        unresolvedLinkedChild = unresolvedLinkedChildIds.Count > 0;
+        return false;
     }
+
 }

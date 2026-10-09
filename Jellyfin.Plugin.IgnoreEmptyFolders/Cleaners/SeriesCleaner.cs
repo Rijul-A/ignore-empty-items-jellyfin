@@ -124,7 +124,7 @@ public class SeriesCleaner(
             }
         }
 
-        var removedCount = 0;
+        var changedCount = 0;
         var total = seriesList.Count;
 
         for (var i = 0; i < total; i++)
@@ -141,63 +141,39 @@ public class SeriesCleaner(
 
                 if (episodeCount == 0)
                 {
-                    if (config.LogDeletions)
+                    var changed = await HideOrDeleteItemAsync(
+                        series,
+                        "series",
+                        config,
+                        cancellationToken);
+                    if (changed)
                     {
-                        Logger.LogInformation(
-                            "Ignore Empty Items: Hiding/removing " +
-                            "series \"{Name}\" - no files",
-                            series.Name);
+                        changedCount++;
                     }
 
-                    if (config.HideInsteadOfDelete)
+                    if (config.HideInsteadOfDelete || changed)
                     {
-                        if (await TagItemAsync(
-                            series,
-                            config.HideTag,
-                            cancellationToken
-                        ))
-                        {
-                            removedCount++;
-                        }
                         continue;
-                    }
-
-                    try
-                    {
-                        LibraryManager.DeleteItem(
-                            series,
-                            new DeleteOptions
-                            {
-                                DeleteFileLocation = false
-                            });
-                        removedCount++;
-                        continue;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(
-                            ex,
-                            "Ignore Empty Items: Failed to remove " +
-                            "series \"{Name}\"",
-                            series.Name);
                     }
                 }
-                else if (config.HideInsteadOfDelete)
-                {
+                else if (config.HideInsteadOfDelete &&
                     await UntagItemAsync(
                         series,
                         config.HideTag,
                         cancellationToken
-                    );
+                    ))
+                {
+                    changedCount++;
                 }
             }
-            else if (config.HideInsteadOfDelete)
-            {
+            else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
                     series,
                     config.HideTag,
                     cancellationToken
-                );
+                ))
+            {
+                changedCount++;
             }
 
             if (config.DeleteEmptySeasons &&
@@ -205,8 +181,7 @@ public class SeriesCleaner(
                     series.Id, out var seriesSeasons
                 ))
             {
-                removedCount += await CleanSeasonsAsync(
-                    series,
+                changedCount += await CleanSeasonsAsync(
                     config,
                     cancellationToken,
                     seriesSeasons,
@@ -217,17 +192,16 @@ public class SeriesCleaner(
             ReportProgress(progress, i + 1, total);
         }
 
-        return removedCount;
+        return changedCount;
     }
 
     private async Task<int> CleanSeasonsAsync(
-        Series series,
         PluginConfiguration config,
         CancellationToken cancellationToken,
         IReadOnlyList<Season> seasons,
         IReadOnlyDictionary<Guid, int> episodeCountsBySeason)
     {
-        var removedCount = 0;
+        var changedCount = 0;
 
         foreach (var season in seasons)
         {
@@ -243,57 +217,26 @@ public class SeriesCleaner(
 
             if (episodeCount == 0)
             {
-                if (config.LogDeletions)
+                if (await HideOrDeleteItemAsync(
+                    season,
+                    "season",
+                    config,
+                    cancellationToken))
                 {
-                    Logger.LogInformation(
-                        "Ignore Empty Items: Hiding/removing " +
-                        "season \"{Name}\" of series \"{SeriesName}\"",
-                        season.Name,
-                        series.Name);
-                }
-
-                if (config.HideInsteadOfDelete)
-                {
-                    if (await TagItemAsync(
-                        season,
-                        config.HideTag,
-                        cancellationToken
-                    ))
-                    {
-                        removedCount++;
-                    }
-                    continue;
-                }
-
-                try
-                {
-                    LibraryManager.DeleteItem(
-                        season,
-                        new DeleteOptions
-                        {
-                            DeleteFileLocation = false
-                        });
-                    removedCount++;
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(
-                        ex,
-                        "Ignore Empty Items: Failed to remove " +
-                        "season \"{Name}\"",
-                        season.Name);
+                    changedCount++;
                 }
             }
-            else if (config.HideInsteadOfDelete)
-            {
+            else if (config.HideInsteadOfDelete &&
                 await UntagItemAsync(
                     season,
                     config.HideTag,
                     cancellationToken
-                );
+                ))
+            {
+                changedCount++;
             }
         }
 
-        return removedCount;
+        return changedCount;
     }
 }
