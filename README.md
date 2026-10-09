@@ -185,8 +185,15 @@ cleaner phases remain sequential for predictable progress reporting.
 
 ### How emptiness is determined
 
-Items are considered empty when they contain **zero** relevant media or
-child items that are non-virtual/non-missing media with an actual path.
+Items are considered empty when they contain zero relevant media or child
+items that are non-virtual/non-missing media with an actual path. TV episode
+ownership follows the indexed parent hierarchy rather than trusting a stale
+or missing `SeriesId`.
+
+Unloaded linked-child collections are hydrated from persisted link IDs when
+available. If hydration fails, or a linked-child identity is missing,
+unresolved, or cyclic, the relationship is treated as unknown. Unknown
+containers are preserved; only confirmed-empty items are hidden or removed.
 
 In hide mode, empty items receive the hide tag and are hidden from users
 whose policies block that tag. In delete mode, the Jellyfin database

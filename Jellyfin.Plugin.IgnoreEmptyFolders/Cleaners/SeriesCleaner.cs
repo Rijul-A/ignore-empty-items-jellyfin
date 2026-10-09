@@ -45,12 +45,42 @@ public class SeriesCleaner(
             return 0;
         }
 
-        // Discover eligible episodes once and index both TV ownership 
-        // levels.
         Dictionary<Guid, int> episodeCountsBySeries = [];
         Dictionary<Guid, int> episodeCountsBySeason = [];
         if (config.DeleteEmptyShows || config.DeleteEmptySeasons)
         {
+            // A series ownership index requires the physical parent
+            // graph.
+            // Episode.SeriesId is metadata and may be empty or stale.
+            Dictionary<Guid, BaseItem> itemsById = [];
+            HashSet<Guid> seriesIds = [];
+            if (config.DeleteEmptyShows)
+            {
+                var libraryItems = LibraryManager.GetItemList(
+                    new InternalItemsQuery
+                    {
+                        DtoOptions = new DtoOptions(false)
+                    });
+
+                foreach (var item in libraryItems)
+                {
+                    itemsById.TryAdd(item.Id, item);
+                    if (item is Series series)
+                    {
+                        seriesIds.Add(series.Id);
+                    }
+                }
+
+                foreach (var item in seriesList)
+                {
+                    if (item is Series series)
+                    {
+                        seriesIds.Add(series.Id);
+                        itemsById[series.Id] = series;
+                    }
+                }
+            }
+
             var episodes = LibraryManager.GetItemList(
                 new InternalItemsQuery
                 {
@@ -61,6 +91,7 @@ public class SeriesCleaner(
                 });
 
             var episodeIds = new HashSet<Guid>();
+            var owningSeriesByParentId = new Dictionary<Guid, Guid?>();
             foreach (var episode in episodes.OfType<Episode>())
             {
                 if (!episodeIds.Add(episode.Id))
@@ -68,12 +99,20 @@ public class SeriesCleaner(
                     continue;
                 }
 
-                if (episode.SeriesId != Guid.Empty)
+                if (config.DeleteEmptyShows)
                 {
-                    episodeCountsBySeries[episode.SeriesId] =
-                        episodeCountsBySeries.GetValueOrDefault(
-                            episode.SeriesId
-                        ) + 1;
+                    var seriesId = FindOwningSeriesId(
+                        episode.ParentId,
+                        itemsById,
+                        seriesIds,
+                        owningSeriesByParentId);
+                    if (seriesId.HasValue)
+                    {
+                        episodeCountsBySeries[seriesId.Value] =
+                            episodeCountsBySeries.GetValueOrDefault(
+                                seriesId.Value
+                            ) + 1;
+                    }
                 }
 
                 if (episode.ParentId != Guid.Empty)
@@ -193,6 +232,60 @@ public class SeriesCleaner(
         }
 
         return changedCount;
+    }
+
+    // Return null for missing or cyclic parent
+    // chains; unknown ownership is intentionally
+    // not attributed using Episode.SeriesId.
+    private static Guid? FindOwningSeriesId(
+        Guid parentId,
+        IReadOnlyDictionary<Guid, BaseItem> itemsById,
+        IReadOnlySet<Guid> seriesIds,
+        IDictionary<Guid, Guid?> ownershipCache)
+    {
+        if (parentId == Guid.Empty)
+        {
+            return null;
+        }
+
+        var path = new List<Guid>();
+        var pathIds = new HashSet<Guid>();
+        var currentId = parentId;
+        Guid? owningSeriesId = null;
+
+        while (currentId != Guid.Empty &&
+            pathIds.Add(currentId))
+        {
+            if (ownershipCache.TryGetValue(
+                currentId, out owningSeriesId
+            ))
+            {
+                break;
+            }
+
+            path.Add(currentId);
+            if (seriesIds.Contains(currentId))
+            {
+                owningSeriesId = currentId;
+                break;
+            }
+
+            if (!itemsById.TryGetValue(
+                currentId, out var parent
+            ))
+            {
+                break;
+            }
+
+            currentId = parent.ParentId;
+        }
+
+        foreach (var itemId in path)
+        {
+            ownershipCache[itemId] = owningSeriesId;
+        }
+
+        return owningSeriesId;
     }
 
     private async Task<int> CleanSeasonsAsync(

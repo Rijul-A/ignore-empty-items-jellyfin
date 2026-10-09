@@ -4,6 +4,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -469,6 +470,361 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
+    public async Task LinkedChildPathResolvesToIndexedMedia()
+    {
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/legacy-linked-movie.mkv"
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(path: media.Path)
+            ]
+        };
+        var library = CreateLibrary([playlist], [playlist, media]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        AssertNoScalarCounts(library);
+        AssertBulkGraphLookupOnce(library);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task
+        LinkedChildPathTakesPrecedenceOverLegacyLibraryItemId()
+    {
+        var emptyFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/empty-linked-folder"
+        };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/legacy-preferred-movie.mkv"
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(
+                    path: media.Path,
+                    libraryItemId: emptyFolder.Id.ToString("N"))
+            ]
+        };
+        var library = CreateLibrary(
+            [playlist], [playlist, emptyFolder, media]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task
+        RelativeLinkedChildPathResolvesAgainstContainingFolder()
+    {
+        var linkedFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/relative-linked-folder",
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(
+                    path: "relative-linked-movie.mkv")
+            ]
+        };
+        var rawPathFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Path = "relative-linked-movie.mkv"
+        };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path =
+                "/media/relative-linked-folder/" +
+                "relative-linked-movie.mkv"
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = linkedFolder.Id }
+            ]
+        };
+        var library = CreateLibrary(
+            [playlist], [playlist, linkedFolder, rawPathFolder, media]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task LinkedChildLibraryItemIdResolvesToIndexedMedia()
+    {
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/library-id-linked-movie.mkv"
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(
+                    libraryItemId: media.Id.ToString("N"))
+            ]
+        };
+        var library = CreateLibrary([playlist], [playlist, media]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task LinkedUnloadedContainerIsPreserved()
+    {
+        var linkedFolder = new Folder
+        {
+            Id = Guid.NewGuid()
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = linkedFolder.Id }
+            ]
+        };
+        var library = CreateLibrary(
+            [playlist], [playlist, linkedFolder]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task
+        RegularFolderWithUnresolvedLinkedChildIsPreserved()
+    {
+        var folder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(path: "/media/not-indexed.mkv")
+            ]
+        };
+        var library = CreateLibrary([folder], [folder]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UnloadedOrdinaryRootWithHydratedMediaIsPreserved()
+    {
+        var root = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Unloaded root"
+        };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Stored linked movie",
+            Path = "/media/stored-linked-movie.mkv"
+        };
+        var linkedChildren = new Mock<ILinkedChildrenService>();
+        linkedChildren
+            .Setup(m => m.GetLinkedChildrenIds(root.Id, null))
+            .Returns([media.Id]);
+        var library = CreateLibrary([root], [root, media]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(
+            library, linkedChildren.Object).CleanAsync(
+                config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        linkedChildren.Verify(
+            m => m.GetLinkedChildrenIds(root.Id, null),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task
+        UnloadedOrdinaryRootWithHydratedEmptyLinksIsDeleted()
+    {
+        var root = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Unloaded empty root"
+        };
+        var linkedChildren = new Mock<ILinkedChildrenService>();
+        linkedChildren
+            .Setup(m => m.GetLinkedChildrenIds(root.Id, null))
+            .Returns([]);
+        var library = CreateLibrary([root], [root]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(
+            library, linkedChildren.Object).CleanAsync(
+                config, null, CancellationToken.None);
+
+        Assert.Equal(1, changedCount);
+        linkedChildren.Verify(
+            m => m.GetLinkedChildrenIds(root.Id, null),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                root,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task
+        UnresolvedLegacyPathDoesNotFallBackToLibraryItemId()
+    {
+        var emptyTarget = new Folder
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren = []
+        };
+        var folder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(
+                    path: "/media/not-indexed.mkv",
+                    libraryItemId: emptyTarget.Id.ToString("N"))
+            ]
+        };
+        var library = CreateLibrary(
+            [folder], [folder, emptyTarget]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task DeepCyclicEmptyLinkedGraphIsPreserved()
+    {
+        const int depth = 256;
+        var root = new Folder
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren = []
+        };
+        var graph = new List<BaseItem> { root };
+        var previous = root;
+        for (var i = 0; i < depth; i++)
+        {
+            var current = new Folder
+            {
+                Id = Guid.NewGuid(),
+                ParentId = previous.Id,
+                LinkedChildren = []
+            };
+            graph.Add(current);
+            previous = current;
+        }
+
+        previous.LinkedChildren =
+        [
+            new LinkedChild { ItemId = root.Id }
+        ];
+        root.LinkedChildren =
+        [
+            new LinkedChild { ItemId = graph[1].Id }
+        ];
+
+        var library = CreateLibrary([root], graph);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task NestedEmptyFoldersAreDeleted()
     {
         var root = new Folder { Id = Guid.NewGuid(), Name = "Root" };
@@ -482,8 +838,9 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var changedCount = await CreateCleaner(library).CleanAsync(
-            config, null, CancellationToken.None
+        var changedCount = await CreateCleaner(
+            library, CreateEmptyLinkedChildrenService()).CleanAsync(
+                config, null, CancellationToken.None
         );
 
         Assert.Equal(1, changedCount);
@@ -520,8 +877,9 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var changedCount = await CreateCleaner(library).CleanAsync(
-            config, null, CancellationToken.None
+        var changedCount = await CreateCleaner(
+            library, CreateEmptyLinkedChildrenService()).CleanAsync(
+                config, null, CancellationToken.None
         );
 
         Assert.Equal(1, changedCount);
@@ -603,8 +961,9 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var changedCount = await CreateCleaner(library).CleanAsync(
-            config, null, CancellationToken.None
+        var changedCount = await CreateCleaner(
+            library, CreateEmptyLinkedChildrenService()).CleanAsync(
+                config, null, CancellationToken.None
         );
 
         Assert.Equal(1, changedCount);
@@ -646,8 +1005,9 @@ public sealed class ContainerCleanerTests
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
 
-        var changedCount = await CreateCleaner(library).CleanAsync(
-            config, null, CancellationToken.None
+        var changedCount = await CreateCleaner(
+            library, CreateEmptyLinkedChildrenService()).CleanAsync(
+                config, null, CancellationToken.None
         );
 
         Assert.Equal(1, changedCount);
@@ -661,6 +1021,28 @@ public sealed class ContainerCleanerTests
             Times.Once
         );
     }
+
+    // These obsolete fields are required for compatibility
+    // regression coverage.
+#pragma warning disable CS0618
+    private static LinkedChild CreateLegacyLinkedChild(
+        string? path = null,
+        string? libraryItemId = null)
+    {
+        var linkedChild = new LinkedChild();
+        if (path is not null)
+        {
+            linkedChild.Path = path;
+        }
+
+        if (libraryItemId is not null)
+        {
+            linkedChild.LibraryItemId = libraryItemId;
+        }
+
+        return linkedChild;
+    }
+#pragma warning restore CS0618
 
     private static PluginConfiguration CreateConfig()
     {
@@ -734,13 +1116,26 @@ public sealed class ContainerCleanerTests
         );
     }
 
+    private static ILinkedChildrenService
+        CreateEmptyLinkedChildrenService()
+    {
+        var service = new Mock<ILinkedChildrenService>();
+        service
+            .Setup(m => m.GetLinkedChildrenIds(
+                It.IsAny<Guid>(), null))
+            .Returns([]);
+        return service.Object;
+    }
+
     private static ContainerCleaner CreateCleaner(
-        Mock<ILibraryManager> library
+        Mock<ILibraryManager> library,
+        ILinkedChildrenService? linkedChildrenService = null
     )
     {
         return new ContainerCleaner(
             library.Object,
-            NullLogger<ContainerCleaner>.Instance
+            NullLogger<ContainerCleaner>.Instance,
+            linkedChildrenService
         );
     }
 }
