@@ -891,6 +891,87 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
+    public async Task CancellationDuringHydrationStopsCurrentRoot()
+    {
+        var root = new Folder { Id = Guid.NewGuid() };
+        var nested = new Folder { Id = Guid.NewGuid() };
+        var links = new Mock<ILinkedChildrenService>();
+        using var cancellation = new CancellationTokenSource();
+        links
+            .Setup(m => m.GetLinkedChildrenIds(root.Id, null))
+            .Returns(() =>
+            {
+                cancellation.Cancel();
+                return [nested.Id];
+            });
+        links
+            .Setup(m => m.GetLinkedChildrenIds(nested.Id, null))
+            .Returns([]);
+        var library = CreateLibrary([root], [root, nested]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => CreateCleaner(library, links.Object).CleanAsync(
+                config, null, cancellation.Token));
+
+        links.Verify(
+            m => m.GetLinkedChildrenIds(root.Id, null),
+            Times.Once);
+        links.Verify(
+            m => m.GetLinkedChildrenIds(nested.Id, null),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task HydrationCancellationPropagatesAndCanRetry()
+    {
+        var root = new Folder { Id = Guid.NewGuid() };
+        var links = new Mock<ILinkedChildrenService>();
+        links
+            .SetupSequence(m => m.GetLinkedChildrenIds(root.Id, null))
+            .Throws(new OperationCanceledException(
+                "Linked child lookup cancelled."))
+            .Returns([]);
+        var library = CreateLibrary([root], [root]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+        var cleaner = CreateCleaner(library, links.Object);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => cleaner.CleanAsync(
+                config, null, CancellationToken.None));
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+
+        Assert.Equal(
+            1,
+            await cleaner.CleanAsync(
+                config, null, CancellationToken.None));
+        links.Verify(
+            m => m.GetLinkedChildrenIds(root.Id, null),
+            Times.Exactly(2));
+        library.Verify(
+            m => m.DeleteItem(
+                root,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task AlternateMovieKeepsPhysicalFolder()
     {
         var root = new Folder

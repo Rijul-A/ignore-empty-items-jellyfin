@@ -379,18 +379,26 @@ public class LibraryCleanupManager(
                 return false;
             }
 
-            var tags = item.Tags
+            var originalTags = item.Tags;
+            var tags = originalTags
                 .Where(t => !t.Equals(
                     oldTag, StringComparison.OrdinalIgnoreCase));
             item.Tags = string.IsNullOrEmpty(newTag)
                 ? [.. tags]
                 : [.. tags, newTag];
-            await libraryManager.UpdateItemAsync(
-                item,
-                item.GetParent(),
-                ItemUpdateType.MetadataEdit,
-                cancellationToken);
-
+            try
+            {
+                await libraryManager.UpdateItemAsync(
+                    item,
+                    item.GetParent(),
+                    ItemUpdateType.MetadataEdit,
+                    cancellationToken);
+            }
+            catch
+            {
+                item.Tags = originalTags;
+                throw;
+            }
         }
 
         _logger.LogInformation(

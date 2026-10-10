@@ -185,6 +185,9 @@ not a database transaction. Cleanup saves the plugin configuration
 only when its recorded hide-tag migration state changes, not on
 every reconciliation. Replacing the configuration during a cleanup
 stops the old run before its next metadata update or deletion.
+If an item metadata update fails or is cancelled during migration,
+its in-memory tags revert to their pre-update state; the old tag stays
+blocked until reconciliation succeeds on a later attempt.
 
 Cleanup execution and metadata updates are awaited asynchronously, while
 cleaner phases remain sequential for predictable progress reporting.
@@ -238,6 +241,10 @@ or cyclic, the relationship is treated as unknown. Unknown containers
 are preserved; only confirmed-empty items are hidden or removed.
 Media reachable through a cycle can restore previously hidden
 containers regardless of which container was checked first.
+Cancellation is checked during container traversal and before and
+after persisted linked-child lookups. A synchronous lookup already
+running cannot be interrupted, but cancellation stops traversal
+before further lookups or item changes.
 
 For loaded linked children, an indexed non-empty `ItemId` wins.
 Unlike Jellyfin, if that ID is absent from the bulk snapshot, the

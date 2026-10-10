@@ -751,6 +751,142 @@ public sealed class ConfigurationMigrationTests
     [InlineData(false, false)]
     [InlineData(true, true)]
     [InlineData(false, true)]
+    public async Task FailedMigrationRestoresCachedTagsBeforeRetry(
+        bool replaceTag,
+        bool cancelUpdate)
+    {
+        var config = new PluginConfiguration
+        {
+            HideInsteadOfDelete = replaceTag,
+            HideTag = "B",
+            PreviousHideTag = "A",
+            HideInsteadOfDeleteWasActive = true
+        };
+        var saved = new List<object>();
+        _ = CreatePlugin(config, saved.Add);
+        string[] originalTags = ["A", "unrelated"];
+        var cachedItem = new Movie { Tags = originalTags };
+        string[] blockedTags = ["A"];
+        var library = new Mock<ILibraryManager>();
+        library
+            .Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) =>
+                cachedItem.Tags.Contains(
+                    query.Tags.Single(),
+                    StringComparer.OrdinalIgnoreCase)
+                    ? [cachedItem]
+                    : []);
+        var failedUpdate = new InvalidOperationException(
+            "Item persistence failed");
+        using var cancellation = new CancellationTokenSource();
+        var updates = 0;
+        library
+            .Setup(m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((
+                BaseItem item,
+                BaseItem _,
+                ItemUpdateType _,
+                CancellationToken token) =>
+            {
+                Assert.Same(cachedItem, item);
+                updates++;
+                Assert.Equal(
+                    replaceTag ? ["unrelated", "B"] : ["unrelated"],
+                    item.Tags);
+                if (updates != 1)
+                {
+                    return Task.CompletedTask;
+                }
+
+                if (cancelUpdate)
+                {
+                    cancellation.Cancel();
+                    return Task.FromCanceled(token);
+                }
+
+                return Task.FromException(failedUpdate);
+            });
+        var user = new User("user", "auth", "reset");
+        var users = new Mock<IUserManager>();
+        users.Setup(m => m.GetUsers()).Returns([user]);
+        users
+            .Setup(m => m.GetUserDto(user, It.IsAny<string>()))
+            .Returns(() => new UserDto
+            {
+                Policy = new UserPolicy
+                {
+                    BlockedTags = [.. blockedTags]
+                }
+            });
+        users
+            .Setup(m => m.UpdatePolicyAsync(
+                user.Id,
+                It.IsAny<UserPolicy>()))
+            .Returns((Guid _, UserPolicy policy) =>
+            {
+                blockedTags = [.. policy.BlockedTags];
+                return Task.CompletedTask;
+            });
+        var manager = new LibraryCleanupManager(
+            library.Object,
+            users.Object,
+            NullLoggerFactory.Instance);
+
+        if (cancelUpdate)
+        {
+            var exception = await Assert.ThrowsAnyAsync<
+                OperationCanceledException>(
+                () => manager.HandleConfigurationChangedAsync(
+                    cancellation.Token));
+            Assert.Equal(
+                cancellation.Token, exception.CancellationToken);
+        }
+        else
+        {
+            var exception = await Assert.ThrowsAsync<
+                InvalidOperationException>(
+                () => manager.HandleConfigurationChangedAsync(
+                    cancellation.Token));
+            Assert.Same(failedUpdate, exception);
+        }
+
+        Assert.Equal(1, updates);
+        Assert.Same(originalTags, cachedItem.Tags);
+        Assert.Equal(["A", "unrelated"], cachedItem.Tags);
+        Assert.Equal(
+            replaceTag ? ["A", "B"] : ["A"],
+            blockedTags);
+        Assert.Equal("A", config.PreviousHideTag);
+        Assert.True(config.HideInsteadOfDeleteWasActive);
+        Assert.Empty(saved);
+
+        await manager.HandleConfigurationChangedAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, updates);
+        Assert.Equal(
+            replaceTag ? ["unrelated", "B"] : ["unrelated"],
+            cachedItem.Tags);
+        Assert.Equal(
+            replaceTag ? ["B"] : Array.Empty<string>(),
+            blockedTags);
+        Assert.Equal(
+            replaceTag ? "B" : string.Empty,
+            config.PreviousHideTag);
+        Assert.Equal(replaceTag, config.HideInsteadOfDeleteWasActive);
+        Assert.Contains(config, saved);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
     public async Task MigrationRetainsOldBlockUntilAllItemsArePersisted(
         bool replaceTag,
         bool failLastUpdate)

@@ -198,7 +198,8 @@ public class ContainerCleaner(
                 linkedChildrenByParentId,
                 hydratedLinkedChildrenFolders,
                 attemptedLinkedChildrenFolders,
-                evaluations);
+                evaluations,
+                cancellationToken);
 
             if (evaluation == EvaluationState.Unknown)
             {
@@ -359,7 +360,8 @@ public class ContainerCleaner(
             linkedChildrenByParentId,
         ISet<Guid> hydratedLinkedChildrenFolders,
         ISet<Guid> attemptedLinkedChildrenFolders,
-        IDictionary<EvaluationKey, EvaluationState> evaluations)
+        IDictionary<EvaluationKey, EvaluationState> evaluations,
+        CancellationToken cancellationToken)
     {
         var rootKey = new EvaluationKey(rootId, viaLinkedChild);
         if (evaluations.TryGetValue(rootKey, out var rootEvaluation))
@@ -377,6 +379,7 @@ public class ContainerCleaner(
 
         while (frames.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var frame = frames.Peek();
             if (frame.WaitingFor is EvaluationKey waitingFor)
             {
@@ -428,10 +431,14 @@ public class ContainerCleaner(
                     {
                         try
                         {
+                            cancellationToken
+                                .ThrowIfCancellationRequested();
                             var linkedChildIds =
                                 linkedChildrenService
                                     .GetLinkedChildrenIds(
                                         item.Id, null);
+                            cancellationToken
+                                .ThrowIfCancellationRequested();
                             if (linkedChildIds is not null)
                             {
                                 var hydratedLinks =
@@ -451,8 +458,14 @@ public class ContainerCleaner(
                                     item.Id);
                             }
                         }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
                         catch (Exception ex)
                         {
+                            cancellationToken
+                                .ThrowIfCancellationRequested();
                             Logger.LogDebug(
                                 ex,
                                 "Ignore Empty Items: Unable to " +
