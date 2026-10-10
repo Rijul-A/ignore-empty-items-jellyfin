@@ -10,6 +10,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tests;
 
+[Collection("BaseItem.LibraryManager")]
 public sealed class SeriesCleanerTests
 {
     [Fact]
@@ -46,6 +47,95 @@ public sealed class SeriesCleanerTests
             Times.Never);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EmptySeriesAdvancesProgressBeforeNextSeries(
+        bool hideInsteadOfDelete)
+    {
+        var firstEmpty = NewSeries("First empty");
+        var populated = NewSeries("Populated");
+        var lastEmpty = NewSeries("Last empty");
+        var episode = NewEpisode(
+            populated, null, "Episode", isVirtual: false
+        );
+        var library = CreateLibrary(
+            [firstEmpty, populated, lastEmpty], [episode], []
+        );
+        var config = CreateConfig();
+        config.DeleteEmptySeasons = false;
+        config.HideInsteadOfDelete = hideInsteadOfDelete;
+        List<double> reports = [];
+        var progress = new Mock<IProgress<double>>();
+        progress.Setup(p => p.Report(It.IsAny<double>()))
+            .Callback<double>(reports.Add);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, progress.Object, CancellationToken.None
+        );
+
+        Assert.Equal(2, changedCount);
+        Assert.Collection(
+            reports,
+            value => Assert.Equal(100.0 / 3, value, 10),
+            value => Assert.Equal(200.0 / 3, value, 10),
+            value => Assert.Equal(100.0, value));
+        if (hideInsteadOfDelete)
+        {
+            Assert.Contains(
+                "plugin-ignore-empty-items-hidden", firstEmpty.Tags);
+            Assert.Contains(
+                "plugin-ignore-empty-items-hidden", lastEmpty.Tags);
+            Assert.DoesNotContain(
+                "plugin-ignore-empty-items-hidden", populated.Tags);
+        }
+        else
+        {
+            library.Verify(
+                m => m.DeleteItem(
+                    firstEmpty, It.IsAny<DeleteOptions>()),
+                Times.Once);
+            library.Verify(
+                m => m.DeleteItem(
+                    lastEmpty, It.IsAny<DeleteOptions>()),
+                Times.Once);
+            library.Verify(
+                m => m.DeleteItem(
+                    populated, It.IsAny<DeleteOptions>()),
+                Times.Never);
+        }
+    }
+
+    [Fact]
+    public async Task NonSeriesEntryAlsoAdvancesProgress()
+    {
+        var empty = NewSeries("Empty");
+        var library = CreateLibrary([empty], [], []);
+        library.Setup(m => m.GetItemList(
+            It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 &&
+                q.IncludeItemTypes[0] == BaseItemKind.Series)))
+            .Returns([new Season(), empty]);
+        var config = CreateConfig();
+        config.DeleteEmptySeasons = false;
+        List<double> reports = [];
+        var progress = new Mock<IProgress<double>>();
+        progress.Setup(p => p.Report(It.IsAny<double>()))
+            .Callback<double>(reports.Add);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, progress.Object, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        Assert.Collection(
+            reports,
+            value => Assert.Equal(50.0, value),
+            value => Assert.Equal(100.0, value));
+        Assert.Contains(
+            "plugin-ignore-empty-items-hidden", empty.Tags);
+    }
+
     [Fact]
     public async Task
         EmptySeriesWithOnlyVirtualAndMissingEpisodesIsDeleted()
@@ -56,8 +146,10 @@ public sealed class SeriesCleanerTests
         );
         var missingEpisode = NewEpisode(
             series, null, "Missing episode",
-            isVirtual: true, isMissing: true
+            isVirtual: false, isMissing: true
         );
+        Assert.False(missingEpisode.IsVirtualItem);
+        Assert.Null(missingEpisode.Path);
         var library = CreateLibrary(
             [series], [virtualEpisode, missingEpisode], []
         );
@@ -124,6 +216,63 @@ public sealed class SeriesCleanerTests
                 populatedSeries, It.IsAny<DeleteOptions>()
             ),
             Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PathlessChannelEpisodeProtectsItsAncestors(
+        bool cleanShows)
+    {
+        var channelSeries = NewSeries("Channel series");
+        var localSeries = NewSeries("Local series");
+        var channelSeason = NewSeason(
+            channelSeries, "Channel season", "/library/channel/season"
+        );
+        var localSeason = NewSeason(
+            localSeries, "Local season", "/library/local/season"
+        );
+        var channelEpisode = NewEpisode(
+            channelSeries, channelSeason, "Channel episode",
+            isVirtual: false, isMissing: true
+        );
+        channelEpisode.ChannelId = Guid.NewGuid();
+        var localEpisode = NewEpisode(
+            localSeries, localSeason, "Local episode",
+            isVirtual: false, isMissing: true
+        );
+        var library = CreateLibrary(
+            [channelSeries, localSeries],
+            [channelEpisode, localEpisode],
+            [channelSeason, localSeason]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = cleanShows;
+        config.DeleteEmptySeasons = !cleanShows;
+        config.HideInsteadOfDelete = false;
+        Assert.False(channelEpisode.IsVirtualItem);
+        Assert.Null(channelEpisode.Path);
+        Assert.False(localEpisode.IsVirtualItem);
+        Assert.Null(localEpisode.Path);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        var protectedItem = cleanShows
+            ? (BaseItem)channelSeries : channelSeason;
+        var emptyItem = cleanShows
+            ? (BaseItem)localSeries : localSeason;
+        library.Verify(
+            m => m.DeleteItem(
+                protectedItem, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(
+                emptyItem,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
     }
 
     [Fact]
@@ -339,6 +488,49 @@ public sealed class SeriesCleanerTests
             m => m.DeleteItem(
                 populatedFilesystemSeason, It.IsAny<DeleteOptions>()
             ),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task PathlessEpisodeDoesNotPreserveFilesystemSeason()
+    {
+        var series = NewSeries("Series");
+        var empty = NewSeason(
+            series, "Pathless", "/library/series/season-1"
+        );
+        var populated = NewSeason(
+            series, "Populated", "/library/series/season-2"
+        );
+        var missingEpisode = NewEpisode(
+            series, empty, "Missing episode",
+            isVirtual: false, isMissing: true
+        );
+        var realEpisode = NewEpisode(
+            series, populated, "Real episode", isVirtual: false
+        );
+        Assert.False(missingEpisode.IsVirtualItem);
+        Assert.Null(missingEpisode.Path);
+        var library = CreateLibrary(
+            [series], [missingEpisode, realEpisode],
+            [empty, populated]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = false;
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                empty,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                populated, It.IsAny<DeleteOptions>()),
             Times.Never);
     }
 
@@ -874,6 +1066,59 @@ public sealed class SeriesCleanerTests
                 It.IsAny<BaseItem>(),
                 It.IsAny<DeleteOptions>()),
             Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PathlessUnknownEpisodeDoesNotProtectCandidates(
+        bool cleanShows)
+    {
+        var first = NewSeries("First");
+        var second = NewSeries("Second");
+        var firstSeason = NewSeason(
+            first, "First season", "/library/first/season"
+        );
+        var secondSeason = NewSeason(
+            second, "Second season", "/library/second/season"
+        );
+        var episode = NewEpisode(
+            first, firstSeason, "Missing episode",
+            isVirtual: false, isMissing: true
+        );
+        episode.ParentId = Guid.NewGuid();
+        episode.SeriesId = Guid.Empty;
+        episode.SeasonId = Guid.Empty;
+        Assert.False(episode.IsVirtualItem);
+        Assert.Null(episode.Path);
+        var library = CreateLibrary(
+            [first, second], [episode],
+            [firstSeason, secondSeason]
+        );
+        var config = CreateConfig();
+        config.DeleteEmptyShows = cleanShows;
+        config.DeleteEmptySeasons = !cleanShows;
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(2, changedCount);
+        var firstCandidate = cleanShows
+            ? (BaseItem)first : firstSeason;
+        var secondCandidate = cleanShows
+            ? (BaseItem)second : secondSeason;
+        library.Verify(
+            m => m.DeleteItem(
+                firstCandidate,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                secondCandidate,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
     }
 
     private static PluginConfiguration CreateConfig()

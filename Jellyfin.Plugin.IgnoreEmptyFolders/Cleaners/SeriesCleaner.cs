@@ -144,7 +144,8 @@ public class SeriesCleaner(
             var episodeIds = new HashSet<Guid>();
             foreach (var episode in episodes.OfType<Episode>())
             {
-                if (!episodeIds.Add(episode.Id))
+                if (!IsRealMedia(episode) ||
+                    !episodeIds.Add(episode.Id))
                 {
                     continue;
                 }
@@ -219,7 +220,10 @@ public class SeriesCleaner(
             cancellationToken.ThrowIfCancellationRequested();
 
             if (seriesList[i] is not Series series)
+            {
+                ReportProgress(progress, i + 1, total);
                 continue;
+            }
 
             if (config.DeleteEmptyShows)
             {
@@ -243,6 +247,7 @@ public class SeriesCleaner(
 
                     if (config.HideInsteadOfDelete || changed)
                     {
+                        ReportProgress(progress, i + 1, total);
                         continue;
                     }
                 }

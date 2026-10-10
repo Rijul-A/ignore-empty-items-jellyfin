@@ -134,6 +134,17 @@ public class LibraryCleanupManager(
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            if (!string.IsNullOrEmpty(targetTag) &&
+                !await EnsureUsersBlockTagAsync(
+                    targetTag,
+                    config.HideTagSkipAdmins,
+                    plugin,
+                    config,
+                    cancellationToken))
+            {
+                continue;
+            }
+
             var migrationCompleted = true;
             foreach (var sourceTag in sourceTags)
             {
@@ -153,21 +164,6 @@ public class LibraryCleanupManager(
             }
 
             if (!migrationCompleted)
-            {
-                continue;
-            }
-
-            if (!IsCurrentConfiguration(plugin, targetTag))
-            {
-                continue;
-            }
-
-            if (!string.IsNullOrEmpty(targetTag) &&
-                !await EnsureUsersBlockTagAsync(
-                    targetTag,
-                    config.HideTagSkipAdmins,
-                    plugin,
-                    cancellationToken))
             {
                 continue;
             }
@@ -359,14 +355,14 @@ public class LibraryCleanupManager(
                 newTag);
         }
 
-        var taggedItems = libraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                Tags = [oldTag],
-                IncludeOwnedItems = true,
-                GroupByPresentationUniqueKey = false,
-                DtoOptions = new DtoOptions(false)
-            });
+        var tagQuery = new InternalItemsQuery
+        {
+            Tags = [oldTag],
+            IncludeOwnedItems = true,
+            GroupByPresentationUniqueKey = false,
+            DtoOptions = new DtoOptions(false)
+        };
+        var taggedItems = libraryManager.GetItemList(tagQuery);
 
         if (!ReferenceEquals(config, plugin.Configuration) ||
             !IsCurrentConfiguration(plugin, newTag))
@@ -402,6 +398,28 @@ public class LibraryCleanupManager(
             "during tag migration",
             taggedItems.Count);
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(config, plugin.Configuration) ||
+            !IsCurrentConfiguration(plugin, newTag))
+        {
+            return false;
+        }
+
+        // A failed or deferred update must not expose an item by
+        // unblocking its old tag before it is persisted without it.
+        if (libraryManager.GetItemList(tagQuery).Count != 0)
+        {
+            if (!ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, newTag))
+            {
+                return false;
+            }
+
+            throw new InvalidOperationException(
+                $"Hide tag migration from \"{oldTag}\" to " +
+                $"\"{newTag}\" did not persist for all items");
+        }
+
         foreach (var user in userManager.GetUsers())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -423,7 +441,6 @@ public class LibraryCleanupManager(
                     oldTag, StringComparison.OrdinalIgnoreCase))];
             await userManager.UpdatePolicyAsync(user.Id, policy);
 
-
             _logger.LogInformation(
                 "Ignore Empty Items: Removed old tag \"{OldTag}\" " +
                 "from user \"{User}\"",
@@ -438,6 +455,7 @@ public class LibraryCleanupManager(
         string tag,
         bool skipAdmins,
         Plugin plugin,
+        Configuration.PluginConfiguration config,
         CancellationToken cancellationToken)
     {
         var users = userManager.GetUsers().ToList();
@@ -446,18 +464,25 @@ public class LibraryCleanupManager(
             "{Count} users",
             users.Count);
 
-        if (!IsCurrentConfiguration(plugin, tag))
+        if (!ReferenceEquals(config, plugin.Configuration) ||
+            !IsCurrentConfiguration(plugin, tag))
         {
             return false;
         }
 
         foreach (var user in users)
         {
+            if (!ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, tag))
+            {
+                return false;
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             await SyncUserTagAsync(user, tag, skipAdmins);
 
-            var config = plugin.Configuration;
-            if (!IsCurrentConfiguration(plugin, tag) ||
+            if (!ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, tag) ||
                 config.HideTagSkipAdmins != skipAdmins)
             {
                 return false;

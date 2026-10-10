@@ -59,6 +59,7 @@ public class ContainerCleaner(
             new InternalItemsQuery
             {
                 IncludeItemTypes = [.. containerTypes],
+                IncludeOwnedItems = true,
                 GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
             });

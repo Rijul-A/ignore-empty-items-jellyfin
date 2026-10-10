@@ -83,6 +83,21 @@ public class MusicCleaner(
                     Limit = 0,
                     DtoOptions = new DtoOptions(false)
                 });
+            if (albumCount == 0)
+            {
+                // ArtistIds covers artist and album-artist credits.
+                albumCount = LibraryManager.GetCount(
+                    new InternalItemsQuery
+                    {
+                        ArtistIds = [artist.Id],
+                        IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                        IncludeOwnedItems = true,
+                        IsVirtualItem = false,
+                        IsMissing = false,
+                        Limit = 0,
+                        DtoOptions = new DtoOptions(false)
+                    });
+            }
 
             if (albumCount == 0)
             {

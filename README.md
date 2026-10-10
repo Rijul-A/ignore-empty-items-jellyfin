@@ -178,11 +178,13 @@ The plugin provides two mechanisms:
 
 Both mechanisms share the same logic and respect the plugin's
 configuration. Saving configuration changes synchronizes the hide
-tag for existing and newly created users. Cleanup saves the plugin
-configuration only when its recorded hide-tag migration state
-changes, not on every reconciliation. Replacing the configuration
-during a cleanup stops the old run before its next metadata update
-or deletion.
+tag for existing and newly created users. When the hide tag changes,
+the new tag is blocked for users before item metadata is migrated.
+The old tag remains blocked until no items retain it; migration is
+not a database transaction. Cleanup saves the plugin configuration
+only when its recorded hide-tag migration state changes, not on
+every reconciliation. Replacing the configuration during a cleanup
+stops the old run before its next metadata update or deletion.
 
 Cleanup execution and metadata updates are awaited asynchronously, while
 cleaner phases remain sequential for predictable progress reporting.
@@ -193,15 +195,24 @@ is configured.
 
 ### How emptiness is determined
 
-Items are considered empty when they contain zero relevant media or child
-items that are non-virtual/non-missing media with an actual path. TV episode
-and season ownership follows the indexed physical parent hierarchy,
-not stale `SeriesId` metadata. Seasons belong to the series reached
+Items are considered empty when they contain zero relevant media or
+child items that count as real media. Non-missing library media requires
+an actual path; pathless library items do not count even if they are
+marked nonvirtual. A nonvirtual, pathless channel-backed media item
+does count as real media. TV episode and season ownership follows
+the indexed physical parent hierarchy, not stale `SeriesId` metadata.
+Seasons belong to the series reached
 through their parent ancestry; a stale series ID cannot make episodes
 count for a different series. An episode whose parent chain cannot
 resolve protects its metadata-indicated series against empty-series
 cleanup. If that ID is missing or does not identify an indexed series,
 empty-series cleanup is skipped for every series in that run.
+
+Music artists are retained when they have a physical child album, even
+if that album has no artist metadata, or when a real (non-virtual,
+non-missing) album anywhere in the library credits them as an artist
+or album artist. Compilation albums need not be stored inside the
+artist's folder to keep that artist visible.
 
 Jellyfin 12 excludes owned items such as alternate versions from
 ordinary library queries. Physical folder and episode indexes,
@@ -259,6 +270,18 @@ user visibility.
   to contain media (including through linked identities) or the hide
   tag is removed. If the plugin is uninstalled without first disabling
   hide mode, tags and user policies must be cleaned up manually.
+- Cleanup queries and indexes a whole-library snapshot. On large
+  libraries, loading that snapshot and querying the database can use
+  substantial memory and database resources. A production benchmark
+  on a large Jellyfin installation is still needed; no measured
+  large-library performance is available.
+- Disabling one cleanup category while **Hide instead of delete**
+  remains enabled does not reliably clear existing tags. For example,
+  hidden movies stay tagged; disabling show cleanup while leaving
+  season cleanup enabled removes series tags on the next cleanup.
+  To clear all plugin hide tags and the blocked-tag user policy,
+  disable **Hide instead of delete** and save. This affects every
+  category. Re-enabled categories receive tags after cleanup runs.
 
 ## Uninstalling (hide mode)
 

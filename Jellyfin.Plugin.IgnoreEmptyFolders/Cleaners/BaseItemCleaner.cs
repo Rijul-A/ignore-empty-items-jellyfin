@@ -56,8 +56,8 @@ public abstract class BaseItemCleaner(
     protected static bool IsRealMedia(BaseItem item) =>
         !item.IsFolder &&
         !item.IsVirtualItem &&
-        // Jellyfin classifies pathless non-channel items as virtual.
-        !string.IsNullOrWhiteSpace(item.Path);
+        (!string.IsNullOrWhiteSpace(item.Path) ||
+            item.ChannelId != Guid.Empty);
 
     protected bool HasTag(BaseItem item, string tag) =>
         item.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase);

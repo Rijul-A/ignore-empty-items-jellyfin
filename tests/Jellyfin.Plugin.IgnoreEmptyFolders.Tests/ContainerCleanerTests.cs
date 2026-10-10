@@ -11,6 +11,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tests;
 
+[Collection("BaseItem.LibraryManager")]
 public sealed class ContainerCleanerTests
 {
     [Fact]
@@ -134,6 +135,97 @@ public sealed class ContainerCleanerTests
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
             ),
             Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task PathlessChannelChildPreservesLinkedContainer(
+        bool isBoxSet, bool hideInsteadOfDelete)
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = hideInsteadOfDelete;
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Channel movie",
+            ChannelId = Guid.NewGuid(),
+            IsVirtualItem = false
+        };
+        Folder container = isBoxSet
+            ? new BoxSet { Id = Guid.NewGuid() }
+            : new MediaBrowser.Controller.Playlists.Playlist
+            {
+                Id = Guid.NewGuid()
+            };
+        container.LinkedChildren =
+        [
+            new LinkedChild { ItemId = media.Id }
+        ];
+        if (hideInsteadOfDelete)
+        {
+            container.Tags = [config.HideTag];
+        }
+
+        var library = CreateLibrary(
+            [container], [container, media]);
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(hideInsteadOfDelete ? 1 : 0, changedCount);
+        Assert.DoesNotContain(config.HideTag, container.Tags);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                container,
+                It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            hideInsteadOfDelete ? Times.Once() : Times.Never());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task
+        PathlessLibraryChildDoesNotPreserveLinkedContainer(
+            bool isBoxSet)
+    {
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Pathless library movie",
+            IsVirtualItem = false
+        };
+        Folder container = isBoxSet
+            ? new BoxSet { Id = Guid.NewGuid() }
+            : new MediaBrowser.Controller.Playlists.Playlist
+            {
+                Id = Guid.NewGuid()
+            };
+        container.LinkedChildren =
+        [
+            new LinkedChild { ItemId = media.Id }
+        ];
+        var library = CreateLibrary(
+            [container], [container, media]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                container,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
     }
 
     [Fact]
