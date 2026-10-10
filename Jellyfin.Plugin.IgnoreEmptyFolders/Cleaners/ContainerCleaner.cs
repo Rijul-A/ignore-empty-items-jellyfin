@@ -19,6 +19,11 @@ public class ContainerCleaner(
         libraryManager, logger, isConfigurationCurrent)
 {
 
+    private static readonly StringComparer PathComparer =
+        OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
     public override double Weight => CleanupWeights.Containers;
 
     public override bool IsEnabled(PluginConfiguration config)
@@ -84,8 +89,8 @@ public class ContainerCleaner(
             new Dictionary<Guid, List<LinkedReference>>();
         var hydratedLinkedChildrenFolders = new HashSet<Guid>();
         var attemptedLinkedChildrenFolders = new HashSet<Guid>();
-        var itemsByPath = new Dictionary<string, Guid>(
-            StringComparer.OrdinalIgnoreCase);
+        var itemsByPath = new Dictionary<string, Guid>(PathComparer);
+        var deletedPhysicalItems = new HashSet<Guid>();
 
         var evaluations =
             new Dictionary<EvaluationKey, EvaluationState>();
@@ -93,6 +98,12 @@ public class ContainerCleaner(
         for (var i = 0; i < total; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!config.HideInsteadOfDelete &&
+                deletedPhysicalItems.Contains(containers[i].Id))
+            {
+                ReportProgress(progress, i + 1, total);
+                continue;
+            }
 
             var container = containers[i];
             var containerTypeLabel = container switch
@@ -133,6 +144,12 @@ public class ContainerCleaner(
                         cancellationToken))
                 {
                     changedCount++;
+                    if (!config.HideInsteadOfDelete)
+                    {
+                        MarkDeletedPhysicalSubtree(
+                            container.Id, childrenByParentId,
+                            deletedPhysicalItems);
+                    }
                 }
             }
             else if (config.HideInsteadOfDelete &&
@@ -146,6 +163,29 @@ public class ContainerCleaner(
         }
 
         return changedCount;
+    }
+
+    private static void MarkDeletedPhysicalSubtree(
+        Guid rootId,
+        IDictionary<Guid, List<Guid>> childrenByParentId,
+        ISet<Guid> deletedPhysicalItems)
+    {
+        var pending = new Stack<Guid>();
+        pending.Push(rootId);
+        while (pending.Count > 0)
+        {
+            var id = pending.Pop();
+            if (!deletedPhysicalItems.Add(id) ||
+                !childrenByParentId.TryGetValue(id, out var children))
+            {
+                continue;
+            }
+
+            foreach (var child in children)
+            {
+                pending.Push(child);
+            }
+        }
     }
 
     private BaseItem? GetItem(
@@ -291,9 +331,7 @@ public class ContainerCleaner(
             itemId = Guid.Empty;
             foreach (var item in matches)
             {
-                if (!string.Equals(
-                        item.Path, path,
-                        StringComparison.OrdinalIgnoreCase))
+                if (!PathComparer.Equals(item.Path, path))
                 {
                     continue;
                 }

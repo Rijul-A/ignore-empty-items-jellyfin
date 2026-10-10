@@ -426,7 +426,6 @@ public sealed class SeriesCleanerTests
         );
 
         Assert.Equal(0, changedCount);
-        AssertBulkGraphLookupOnce(library);
         AssertNoScalarCounts(library);
         AssertBulkLookupsOnce(
             library, episodeLookup: 1, seasonLookup: 0
@@ -462,7 +461,6 @@ public sealed class SeriesCleanerTests
         );
 
         Assert.Equal(1, changedCount);
-        AssertBulkGraphLookupOnce(library);
         AssertNoScalarCounts(library);
         AssertBulkLookupsOnce(
             library, episodeLookup: 1, seasonLookup: 0
@@ -683,7 +681,6 @@ public sealed class SeriesCleanerTests
         Assert.Equal(2, changedCount);
         Assert.DoesNotContain(config.HideTag, populated.Tags);
         Assert.Contains(config.HideTag, empty.Tags);
-        AssertBulkGraphLookupOnce(library);
         AssertNoScalarCounts(library);
         AssertBulkLookupsOnce(
             library, episodeLookup: 1, seasonLookup: 1
@@ -733,11 +730,170 @@ public sealed class SeriesCleanerTests
                 empty,
                 It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
             Times.Once);
-        AssertBulkGraphLookupOnce(library);
         AssertNoScalarCounts(library);
         AssertBulkLookupsOnce(
             library, episodeLookup: 1, seasonLookup: 1
         );
+    }
+
+    [Fact]
+    public async Task NestedOwnedEpisodesUseOnlyRelevantAncestorLookups()
+    {
+        var physicalSeries = NewSeries("Physical series");
+        var metadataSeries = NewSeries("Metadata series");
+        var libraryRoot = new Folder { Id = Guid.NewGuid() };
+        physicalSeries.ParentId = libraryRoot.Id;
+        metadataSeries.ParentId = libraryRoot.Id;
+        var seriesFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = physicalSeries.Id
+        };
+        var populated = NewSeason(
+            physicalSeries, "Populated", "/library/physical/populated"
+        );
+        populated.ParentId = seriesFolder.Id;
+        populated.SeriesId = metadataSeries.Id;
+        var empty = NewSeason(
+            physicalSeries, "Empty", "/library/physical/empty"
+        );
+        var episodeFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = populated.Id
+        };
+        var unusedFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = metadataSeries.Id
+        };
+        var first = NewEpisode(
+            physicalSeries, populated, "First", isVirtual: false
+        );
+        first.SetPrimaryVersionId(Guid.NewGuid());
+        first.ParentId = episodeFolder.Id;
+        first.SeriesId = metadataSeries.Id;
+        first.SeasonId = empty.Id;
+        var second = NewEpisode(
+            physicalSeries, populated, "Second", isVirtual: false
+        );
+        second.SetPrimaryVersionId(Guid.NewGuid());
+        second.ParentId = episodeFolder.Id;
+        second.SeriesId = metadataSeries.Id;
+        second.SeasonId = empty.Id;
+        var library = CreateLibrary(
+            [physicalSeries, metadataSeries], [first, second],
+            [populated, empty],
+            [
+                libraryRoot, physicalSeries, metadataSeries,
+                seriesFolder, populated, empty,
+                episodeFolder, unusedFolder, first, second
+            ],
+            simulateOwnedExclusion: true
+        );
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(2, changedCount);
+        library.Verify(
+            m => m.DeleteItem(physicalSeries, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(populated, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(metadataSeries, It.IsAny<DeleteOptions>()),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(empty, It.IsAny<DeleteOptions>()),
+            Times.Once);
+        library.Verify(
+            m => m.GetItemById(seriesFolder.Id), Times.Once);
+        library.Verify(
+            m => m.GetItemById(episodeFolder.Id), Times.Once);
+        library.Verify(
+            m => m.GetItemById(It.Is<Guid>(id =>
+                id != seriesFolder.Id && id != episodeFolder.Id)),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UnlistedOwnedSeasonDoesNotAssignEpisodeToStaleSeasonId()
+    {
+        var series = NewSeries("Series");
+        var ownedSeason = NewSeason(
+            series, "Owned season", "/library/series/owned"
+        );
+        var empty = NewSeason(
+            series, "Empty season", "/library/series/empty"
+        );
+        var episode = NewEpisode(
+            series, ownedSeason, "Alternate", isVirtual: false
+        );
+        episode.SetPrimaryVersionId(Guid.NewGuid());
+        episode.SeasonId = empty.Id;
+        var library = CreateLibrary(
+            [series], [episode], [empty],
+            [series, ownedSeason, empty, episode],
+            simulateOwnedExclusion: true
+        );
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(series, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(empty, It.IsAny<DeleteOptions>()),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(ownedSeason, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.GetItemById(ownedSeason.Id), Times.Once);
+    }
+
+    [Fact]
+    public async Task UnlistedPhysicalSeriesDoesNotProtectStaleMetadataSeries()
+    {
+        var unlistedSeries = NewSeries("Unlisted physical series");
+        var emptyCandidate = NewSeries("Stale metadata series");
+        var episode = NewEpisode(
+            unlistedSeries, null, "Alternate", isVirtual: false
+        );
+        episode.SetPrimaryVersionId(Guid.NewGuid());
+        episode.SeriesId = emptyCandidate.Id;
+        var library = CreateLibrary(
+            [emptyCandidate], [episode], [],
+            [emptyCandidate, unlistedSeries, episode],
+            simulateOwnedExclusion: true
+        );
+        var config = CreateConfig();
+        config.DeleteEmptySeasons = false;
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None
+        );
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(emptyCandidate, It.IsAny<DeleteOptions>()),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(unlistedSeries, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.GetItemById(unlistedSeries.Id), Times.Once);
     }
 
     [Fact]
@@ -943,7 +1099,6 @@ public sealed class SeriesCleanerTests
         library.Verify(
             m => m.DeleteItem(season, It.IsAny<DeleteOptions>()),
             Times.Never);
-        AssertBulkGraphLookupOnce(library);
     }
 
     [Fact]
@@ -1219,19 +1374,9 @@ public sealed class SeriesCleanerTests
             {
                 if (query.IncludeItemTypes.Length == 0)
                 {
-                    Assert.Null(query.IsVirtualItem);
-                    Assert.Null(query.IsMissing);
-                    var physicalItems = graphItems ??
-                        series.Cast<BaseItem>()
-                            .Concat(episodes)
-                            .Concat(seasons)
-                            .ToList();
-                    return physicalItems
-                        .Where(item => !simulateOwnedExclusion ||
-                            query.IncludeOwnedItems ||
-                            item is not Episode episode ||
-                            episode.PrimaryVersionId is null)
-                        .ToList();
+                    throw new InvalidOperationException(
+                        "SeriesCleaner must not hydrate unrestricted library items."
+                    );
                 }
 
                 if (
@@ -1293,9 +1438,11 @@ public sealed class SeriesCleanerTests
         library
             .Setup(m => m.GetItemById(It.IsAny<Guid>()))
             .Returns((Guid id) =>
-                series.Cast<BaseItem>()
-                    .Concat(episodes)
-                    .Concat(seasons)
+                (graphItems ??
+                    series.Cast<BaseItem>()
+                        .Concat(episodes)
+                        .Concat(seasons)
+                        .ToList())
                     .FirstOrDefault(item => item.Id == id));
         library
             .Setup(m => m.UpdateItemAsync(
@@ -1363,17 +1510,6 @@ public sealed class SeriesCleanerTests
             ),
             Times.Never
         );
-    }
-
-    private static void AssertBulkGraphLookupOnce(
-        Mock<ILibraryManager> library
-    )
-    {
-        library.Verify(
-            m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes.Length == 0
-            )),
-            Times.Once);
     }
 
     private static void AssertBulkLookupsOnce(

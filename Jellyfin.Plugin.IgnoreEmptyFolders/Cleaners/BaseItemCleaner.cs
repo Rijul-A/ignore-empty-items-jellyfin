@@ -69,17 +69,20 @@ public abstract class BaseItemCleaner(
         CancellationToken cancellationToken
     )
     {
-        if (config.LogDeletions)
-        {
-            Logger.LogInformation(
-                "Ignore Empty Items: Hiding/removing {Type} \"{Name}\"",
-                typeLabel,
-                item.Name);
-        }
-
         if (config.HideInsteadOfDelete)
         {
-            return await TagItemAsync(item, config, cancellationToken);
+            if (!await TagItemAsync(item, config, cancellationToken))
+                return false;
+
+            if (config.LogDeletions)
+            {
+                Logger.LogInformation(
+                    "Ignore Empty Items: Hid {Type} \"{Name}\"",
+                    typeLabel,
+                    item.Name);
+            }
+
+            return true;
         }
 
         try
@@ -91,7 +94,6 @@ public abstract class BaseItemCleaner(
                 {
                     DeleteFileLocation = false
                 });
-            return true;
         }
         catch (OperationCanceledException)
         {
@@ -101,12 +103,22 @@ public abstract class BaseItemCleaner(
         {
             Logger.LogWarning(
                 ex,
-                "Ignore Empty Items: Failed to hide/remove " +
+                "Ignore Empty Items: Failed to delete " +
                 "{Type} \"{Name}\"",
                 typeLabel,
                 item.Name);
             return false;
         }
+
+        if (config.LogDeletions)
+        {
+            Logger.LogInformation(
+                "Ignore Empty Items: Deleted {Type} \"{Name}\"",
+                typeLabel,
+                item.Name);
+        }
+
+        return true;
     }
 
     protected async Task<bool> TagItemAsync(
@@ -169,6 +181,13 @@ public abstract class BaseItemCleaner(
         {
             item.Tags = originalTags;
             throw;
+        }
+
+        if (config.LogDeletions)
+        {
+            Logger.LogInformation(
+                "Ignore Empty Items: Restored \"{Name}\"",
+                item.Name);
         }
         return true;
     }

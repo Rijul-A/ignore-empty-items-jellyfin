@@ -85,10 +85,11 @@ Requires the .NET 10 SDK and ASP.NET Core runtime:
 make test
 ```
 
-The tests cover bulk Series/Season indexing, unloaded linked containers,
-hide mode, delete mode, non-empty container preservation, nested and
-metadata-only folders, deeply nested media, virtual/missing media, BoxSets,
-and Playlists.
+The tests cover bulk Series/Season candidate indexing, bounded ancestor
+lookups for ownership, case-distinct linked paths, deletion of a parent with
+descendants in the cleanup snapshot, change-log accuracy, unloaded linked
+containers, hide/delete modes, deeply nested media, virtual/missing media,
+BoxSets, and Playlists.
 
 The lint suite also checks shell scripts, YAML, GitHub Actions, and the
 Makefile. On Arch/CachyOS, install the packaged tools with:
@@ -159,7 +160,7 @@ Go to **Dashboard > Plugins > Ignore Empty Items** to configure:
 | Delete empty collections | On | Remove empty boxsets/collections. |
 | Delete empty folders | On | Remove folders with no media files. |
 | Delete empty playlists | On | Remove playlists with no items. |
-| Log cleanup changes | On | Write a log entry for each hidden or removed item. |
+| Log cleanup changes | On | Write a log entry when an item is hidden, restored, or deleted; unchanged items are not logged. |
 | Hide instead of delete | On | Tag empty items instead of removing them, and automatically block the tag for regular users. Prevents repeated "item added" webhook notifications. |
 | Skip admins for hide tag | On | Do not block the hide tag for administrators, allowing them to see hidden items. |
 | Hide tag | `plugin-ignore-empty-items-hidden` | The tag applied to empty items when hide mode is enabled. |
@@ -212,6 +213,12 @@ cleanup. If that ID is missing or does not identify an indexed series,
 empty-series cleanup is skipped for every series in that run. In hide
 mode, an empty series can be tagged while its empty seasons are still
 cleaned up independently.
+Ownership lookup loads only ancestors reached from seasons and real
+episodes; it does not hydrate the entire library to build a parent index.
+
+Container cleanup treats linked paths as distinct on case-sensitive platforms,
+so paths differing only by letter case cannot share a cached target. Deleting
+an empty parent also skips its descendants still present in the cleanup snapshot.
 
 Music artists are retained when they have a physical child album, even
 if that album has no artist metadata, or when a real (non-virtual,

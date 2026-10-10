@@ -54,39 +54,19 @@ public class SeriesCleaner(
         HashSet<Guid> uncertainSeasonIds = [];
         var hasUnattributedEpisode = false;
         var hasUnattributedSeasonEpisode = false;
-        Dictionary<Guid, BaseItem> itemsById = [];
+        Dictionary<Guid, Guid?> parentIdsById = [];
+        Dictionary<Guid, BaseItemKind> ancestorKindsById = [];
         HashSet<Guid> seriesIds = [];
         Dictionary<Guid, Guid?> owningSeriesByParentId = [];
         Dictionary<Guid, Guid?> owningSeasonByParentId = [];
         Dictionary<Guid, List<Season>> seasonsBySeries = [];
         if (config.DeleteEmptyShows || config.DeleteEmptySeasons)
         {
-            // Metadata IDs can be stale. Index the physical parent
-            // graph for both series and season ownership.
-            var libraryItems = LibraryManager.GetItemList(
-                new InternalItemsQuery
-                {
-                    IncludeOwnedItems = true,
-                    GroupByPresentationUniqueKey = false,
-                    DtoOptions = new DtoOptions(false)
-                });
-
-            foreach (var item in libraryItems)
+            // Resolve only the ancestors of seasons and real episodes.
+            // Retain IDs rather than hydrating every item in the library.
+            foreach (var item in seriesList.OfType<Series>())
             {
-                itemsById.TryAdd(item.Id, item);
-                if (item is Series series)
-                {
-                    seriesIds.Add(series.Id);
-                }
-            }
-
-            foreach (var item in seriesList)
-            {
-                if (item is Series series)
-                {
-                    seriesIds.Add(series.Id);
-                    itemsById[series.Id] = series;
-                }
+                seriesIds.Add(item.Id);
             }
 
             HashSet<Guid> seasonIds = [];
@@ -107,10 +87,13 @@ public class SeriesCleaner(
                         continue;
                     }
 
+                    parentIdsById[season.Id] = season.ParentId;
                     var seriesId = FindOwningAncestorId(
                         season.ParentId,
-                        itemsById,
+                        parentIdsById,
+                        ancestorKindsById,
                         seriesIds,
+                        BaseItemKind.Series,
                         owningSeriesByParentId);
                     if (!seriesId.HasValue)
                     {
@@ -154,8 +137,10 @@ public class SeriesCleaner(
                 {
                     var seriesId = FindOwningAncestorId(
                         episode.ParentId,
-                        itemsById,
+                        parentIdsById,
+                        ancestorKindsById,
                         seriesIds,
+                        BaseItemKind.Series,
                         owningSeriesByParentId);
                     if (seriesId.HasValue)
                     {
@@ -180,8 +165,10 @@ public class SeriesCleaner(
                 {
                     var seasonId = FindOwningAncestorId(
                         episode.ParentId,
-                        itemsById,
+                        parentIdsById,
+                        ancestorKindsById,
                         seasonIds,
+                        BaseItemKind.Season,
                         owningSeasonByParentId);
                     if (seasonId.HasValue)
                     {
@@ -192,8 +179,10 @@ public class SeriesCleaner(
                     }
                     else if (!FindOwningAncestorId(
                         episode.ParentId,
-                        itemsById,
+                        parentIdsById,
+                        ancestorKindsById,
                         seriesIds,
+                        BaseItemKind.Series,
                         owningSeriesByParentId).HasValue)
                     {
                         // A known series with no season is not
@@ -295,15 +284,32 @@ public class SeriesCleaner(
 
     // Return null for missing or cyclic parent chains. Metadata
     // only protects candidates when physical ownership is unknown.
-    private static Guid? FindOwningAncestorId(
+    private Guid? FindOwningAncestorId(
         Guid parentId,
-        IReadOnlyDictionary<Guid, BaseItem> itemsById,
+        IDictionary<Guid, Guid?> parentIdsById,
+        Dictionary<Guid, BaseItemKind> ancestorKindsById,
         IReadOnlySet<Guid> ancestorIds,
+        BaseItemKind ancestorType,
         IDictionary<Guid, Guid?> ownershipCache)
     {
         if (parentId == Guid.Empty)
         {
             return null;
+        }
+
+        if (ancestorIds.Contains(parentId) ||
+            (ancestorKindsById.TryGetValue(
+                parentId, out var knownKind
+            ) && knownKind == ancestorType))
+        {
+            return parentId;
+        }
+
+        if (ownershipCache.TryGetValue(
+            parentId, out var cachedOwnerId
+        ))
+        {
+            return cachedOwnerId;
         }
 
         var path = new List<Guid>();
@@ -322,20 +328,54 @@ public class SeriesCleaner(
             }
 
             path.Add(currentId);
-            if (ancestorIds.Contains(currentId))
+            if (ancestorIds.Contains(currentId) ||
+                (ancestorKindsById.TryGetValue(
+                    currentId, out var cachedKind
+                ) && cachedKind == ancestorType))
             {
                 owningAncestorId = currentId;
                 break;
             }
 
-            if (!itemsById.TryGetValue(
-                currentId, out var parent
+            if (!parentIdsById.TryGetValue(
+                currentId, out var nextParentId
             ))
+            {
+                var parent = LibraryManager.GetItemById(currentId);
+                nextParentId = parent?.Id == currentId
+                    ? parent.ParentId : null;
+                // An owned ancestor may be absent from the typed
+                // candidate query but still owns its physical children.
+                if (parent?.Id == currentId)
+                {
+                    if (parent is Series)
+                    {
+                        ancestorKindsById[currentId] =
+                            BaseItemKind.Series;
+                    }
+                    else if (parent is Season)
+                    {
+                        ancestorKindsById[currentId] =
+                            BaseItemKind.Season;
+                    }
+                }
+                parentIdsById[currentId] = nextParentId;
+            }
+
+            if (ancestorKindsById.TryGetValue(
+                currentId, out var resolvedKind
+            ) && resolvedKind == ancestorType)
+            {
+                owningAncestorId = currentId;
+                break;
+            }
+
+            if (!nextParentId.HasValue)
             {
                 break;
             }
 
-            currentId = parent.ParentId;
+            currentId = nextParentId.Value;
         }
 
         foreach (var itemId in path)

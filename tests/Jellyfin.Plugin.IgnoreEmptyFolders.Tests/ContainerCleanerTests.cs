@@ -593,6 +593,63 @@ public sealed class ContainerCleanerTests
             Times.Never);
     }
 
+    [Fact]
+    public async Task
+        CaseDistinctLinkedPathsResolveToDifferentTargetsOnLinux()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/Case-Distinct-Target"
+        };
+        var emptyFolder = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/case-distinct-target",
+            LinkedChildren = []
+        };
+        var nonemptyPlaylist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(path: media.Path)
+            ]
+        };
+        var emptyPlaylist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(path: emptyFolder.Path)
+            ]
+        };
+        var library = CreateLibrary(
+            [nonemptyPlaylist, emptyPlaylist],
+            [nonemptyPlaylist, emptyPlaylist, media, emptyFolder]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                emptyPlaylist,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                nonemptyPlaylist, It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -1382,6 +1439,56 @@ public sealed class ContainerCleanerTests
                 root,
                 It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task DeletingParentSkipsDescendantsInContainerSnapshot()
+    {
+        var root = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Root",
+            LinkedChildren = []
+        };
+        var child = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Child",
+            ParentId = root.Id,
+            LinkedChildren = []
+        };
+        var grandchild = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Grandchild",
+            ParentId = child.Id,
+            LinkedChildren = []
+        };
+        var graph = new List<BaseItem> { root, child, grandchild };
+        var library = CreateLibrary([root, child, grandchild], graph);
+        library.Setup(m => m.DeleteItem(
+                root, It.IsAny<DeleteOptions>()))
+            .Callback(() => graph.Clear());
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(1, changedCount);
+        library.Verify(
+            m => m.DeleteItem(
+                root,
+                It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                child, It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(
+                grandchild, It.IsAny<DeleteOptions>()),
+            Times.Never);
     }
 
     [Fact]
