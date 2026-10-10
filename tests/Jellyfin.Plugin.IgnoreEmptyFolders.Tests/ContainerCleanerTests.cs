@@ -30,7 +30,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
@@ -63,7 +63,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 playlist,
@@ -94,7 +94,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 playlist,
@@ -129,7 +129,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
@@ -250,7 +250,7 @@ public sealed class ContainerCleanerTests
         Assert.Equal(0, changedCount);
         Assert.DoesNotContain(config.HideTag, playlist.Tags);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
@@ -284,7 +284,7 @@ public sealed class ContainerCleanerTests
         Assert.Equal(1, changedCount);
         Assert.Contains(CreateConfig().HideTag, boxSet.Tags);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.UpdateItemAsync(
                 boxSet,
@@ -315,7 +315,7 @@ public sealed class ContainerCleanerTests
         Assert.Equal(0, changedCount);
         Assert.Contains(config.HideTag, boxSet.Tags);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.UpdateItemAsync(
                 boxSet,
@@ -353,7 +353,7 @@ public sealed class ContainerCleanerTests
         Assert.Equal(1, changedCount);
         Assert.DoesNotContain(config.HideTag, boxSet.Tags);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.UpdateItemAsync(
                 boxSet,
@@ -393,7 +393,7 @@ public sealed class ContainerCleanerTests
                 config, null, CancellationToken.None));
         Assert.DoesNotContain(config.HideTag, boxSet.Tags);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.UpdateItemAsync(
                 boxSet,
@@ -473,7 +473,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
@@ -503,7 +503,7 @@ public sealed class ContainerCleanerTests
         Assert.Equal(0, changedCount);
         Assert.DoesNotContain(config.HideTag, boxSet.Tags);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
@@ -553,7 +553,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
@@ -586,7 +586,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
@@ -988,8 +988,7 @@ public sealed class ContainerCleanerTests
         alternate.SetPrimaryVersionId(Guid.NewGuid());
         var library = CreateLibrary([root], [root, alternate]);
         library
-            .Setup(m => m.GetItemList(
-                It.IsAny<InternalItemsQuery>()))
+            .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns((InternalItemsQuery query) =>
             {
                 if (query.IncludeItemTypes.Length > 0)
@@ -997,9 +996,10 @@ public sealed class ContainerCleanerTests
                     return [root];
                 }
 
+                Assert.Equal(root.Id, query.ParentId);
                 return query.IncludeOwnedItems
-                    ? new List<BaseItem> { root, alternate }
-                    : new List<BaseItem> { root };
+                    ? new List<BaseItem> { alternate }
+                    : [];
             });
         var config = CreateConfig();
         config.HideInsteadOfDelete = false;
@@ -1132,6 +1132,15 @@ public sealed class ContainerCleanerTests
         linkedChildren.Verify(
             m => m.GetLinkedChildrenIds(It.IsAny<Guid>(), null),
             Times.Once);
+        library.Verify(
+            m => m.GetItemList(
+                It.Is<InternalItemsQuery>(q =>
+                    q.IncludeItemTypes.Length == 0 &&
+                    q.ParentId != Guid.Empty &&
+                    q.ParentId != first.Id &&
+                    q.ParentId != second.Id &&
+                    q.ParentId != reachable.Id)),
+            Times.Never);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
@@ -1367,7 +1376,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 root,
@@ -1406,7 +1415,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(root, It.IsAny<DeleteOptions>()),
             Times.Once);
@@ -1451,7 +1460,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(0, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()
@@ -1490,7 +1499,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(m => m.DeleteItem(
             root,
             It.IsAny<DeleteOptions>()),
@@ -1534,7 +1543,7 @@ public sealed class ContainerCleanerTests
 
         Assert.Equal(1, changedCount);
         AssertNoScalarCounts(library);
-        AssertBulkGraphLookupOnce(library);
+        AssertNoUnrestrictedGraphLookup(library);
         library.Verify(
             m => m.DeleteItem(
                 root,
@@ -1542,6 +1551,79 @@ public sealed class ContainerCleanerTests
                 ),
             Times.Once
         );
+    }
+
+    [Fact]
+    public async Task DuplicateLegacyPathKeepsContainerUnknown()
+    {
+        var first = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/duplicate-linked.mkv"
+        };
+        var second = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Path = first.Path,
+            LinkedChildren = []
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                CreateLegacyLinkedChild(path: first.Path)
+            ]
+        };
+        var library = CreateLibrary(
+            [playlist], [playlist, first, second]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        Assert.Equal(
+            0,
+            await CreateCleaner(library).CleanAsync(
+                config, null, CancellationToken.None));
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task FoundMediaSkipsLaterLoadedLinkedIdentities()
+    {
+        var movie = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/first-linked-movie.mkv"
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = movie.Id },
+                CreateLegacyLinkedChild(
+                    path: "/media/later-linked-movie.mkv")
+            ]
+        };
+        var library = CreateLibrary([playlist], [playlist, movie]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+
+        Assert.Equal(
+            0,
+            await CreateCleaner(library).CleanAsync(
+                config, null, CancellationToken.None));
+        library.Verify(
+            m => m.GetItemList(
+                It.Is<InternalItemsQuery>(q => q.Path != null)),
+            Times.Never);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
     }
 
     // These obsolete fields are required for compatibility
@@ -1592,16 +1674,32 @@ public sealed class ContainerCleanerTests
             .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns((InternalItemsQuery query) =>
             {
+                Assert.True(query.IncludeOwnedItems);
+                Assert.False(query.GroupByPresentationUniqueKey);
                 if (query.IncludeItemTypes.Length > 0)
                 {
+                    Assert.Equal(Guid.Empty, query.ParentId);
                     return containers.ToList();
                 }
 
-                Assert.Null(query.IsFolder);
-                Assert.Null(query.IsVirtualItem);
-                Assert.Null(query.IsMissing);
-                return graph.ToList();
+                if (query.Path is { } path)
+                {
+                    Assert.Equal(Guid.Empty, query.ParentId);
+                    return graph.Where(item =>
+                        string.Equals(
+                            item.Path, path,
+                            StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                }
+
+                Assert.NotEqual(Guid.Empty, query.ParentId);
+                return graph.Where(
+                    item => item.ParentId == query.ParentId).ToList();
             });
+        library
+            .Setup(m => m.GetItemById(It.IsAny<Guid>()))
+            .Returns((Guid id) =>
+                graph.FirstOrDefault(item => item.Id == id));
         library
             .Setup(m => m.GetCount(It.IsAny<InternalItemsQuery>()))
             .Returns((InternalItemsQuery _) =>
@@ -1630,18 +1728,15 @@ public sealed class ContainerCleanerTests
         );
     }
 
-    private static void AssertBulkGraphLookupOnce(
-        Mock<ILibraryManager> library
-    )
+    private static void AssertNoUnrestrictedGraphLookup(
+        Mock<ILibraryManager> library)
     {
         library.Verify(
             m => m.GetItemList(
                 It.Is<InternalItemsQuery>(
-                    q => q.IncludeItemTypes.Length == 0
-                )
-            ),
-            Times.Once
-        );
+                    q => q.IncludeItemTypes.Length == 0 &&
+                        q.ParentId == Guid.Empty && q.Path == null)),
+            Times.Never);
     }
 
     private static ILinkedChildrenService

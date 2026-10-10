@@ -245,7 +245,7 @@ public class SeriesCleaner(
                         changedCount++;
                     }
 
-                    if (config.HideInsteadOfDelete || changed)
+                    if (!config.HideInsteadOfDelete && changed)
                     {
                         ReportProgress(progress, i + 1, total);
                         continue;

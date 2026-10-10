@@ -48,6 +48,70 @@ public sealed class SeriesCleanerTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EmptySeriesInHideModeAlsoTagsItsFilesystemSeasons(
+        bool alreadyTagged)
+    {
+        const string hiddenTag = "plugin-ignore-empty-items-hidden";
+        var series = NewSeries("Empty series");
+        if (alreadyTagged)
+        {
+            series.Tags = [hiddenTag];
+        }
+
+        var firstSeason = NewSeason(
+            series, "First", "/library/empty-series/season-1"
+        );
+        var secondSeason = NewSeason(
+            series, "Second", "/library/empty-series/season-2"
+        );
+        var library = CreateLibrary(
+            [series], [], [firstSeason, secondSeason]
+        );
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = true;
+        var cleaner = CreateCleaner(library);
+        List<double> reports = [];
+        var progress = new Mock<IProgress<double>>();
+        progress.Setup(p => p.Report(It.IsAny<double>()))
+            .Callback<double>(reports.Add);
+
+        var previousLibraryManager = BaseItem.LibraryManager;
+        BaseItem.LibraryManager = library.Object;
+        try
+        {
+            var firstChangedCount = await cleaner.CleanAsync(
+                config, progress.Object, CancellationToken.None
+            );
+
+            Assert.Equal(alreadyTagged ? 2 : 3, firstChangedCount);
+            Assert.Contains(hiddenTag, series.Tags);
+            Assert.Contains(hiddenTag, firstSeason.Tags);
+            Assert.Contains(hiddenTag, secondSeason.Tags);
+            Assert.Collection(
+                reports, value => Assert.Equal(100.0, value));
+
+            reports.Clear();
+            var secondChangedCount = await cleaner.CleanAsync(
+                config, progress.Object, CancellationToken.None
+            );
+
+            Assert.Equal(0, secondChangedCount);
+            Assert.Collection(
+                reports, value => Assert.Equal(100.0, value));
+        }
+        finally
+        {
+            BaseItem.LibraryManager = previousLibraryManager;
+        }
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task EmptySeriesAdvancesProgressBeforeNextSeries(

@@ -72,109 +72,20 @@ public class ContainerCleaner(
             return 0;
         }
 
-        // Snapshot the item graph once; each container is indexed in
-        // memory.
-        var libraryItems = LibraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                IncludeOwnedItems = true,
-                GroupByPresentationUniqueKey = false,
-                DtoOptions = new DtoOptions(false)
-            });
-
+        // Physical descendants are loaded only for reached parents.
         var itemsById = new Dictionary<Guid, BaseItem>();
-        var itemsByPath = new Dictionary<string, Guid>(
-            StringComparer.OrdinalIgnoreCase);
-        var itemsByLibraryId = new Dictionary<string, Guid>(
-            StringComparer.OrdinalIgnoreCase);
-        foreach (var item in libraryItems)
-        {
-            itemsById.TryAdd(item.Id, item);
-            AddUniqueIdentity(itemsByPath, item.Path, item.Id);
-            AddUniqueIdentity(
-                itemsByLibraryId,
-                item.Id.ToString("N"),
-                item.Id);
-            AddUniqueIdentity(
-                itemsByLibraryId,
-                item.Id.ToString(),
-                item.Id);
-        }
-
-        // Keep the roots available even if a test double or an
-        // external content provider omits them from the unrestricted
-        // graph query.
         foreach (var container in containers)
         {
             itemsById.TryAdd(container.Id, container);
-            AddUniqueIdentity(
-                itemsByPath,
-                container.Path,
-                container.Id);
-            AddUniqueIdentity(
-                itemsByLibraryId,
-                container.Id.ToString("N"),
-                container.Id);
-            AddUniqueIdentity(
-                itemsByLibraryId,
-                container.Id.ToString(),
-                container.Id);
         }
 
         var childrenByParentId = new Dictionary<Guid, List<Guid>>();
-        foreach (var item in itemsById.Values)
-        {
-            if (item.ParentId == Guid.Empty)
-            {
-                continue;
-            }
-
-            if (!childrenByParentId.TryGetValue(
-                item.ParentId, out var children))
-            {
-                children = [];
-                childrenByParentId[item.ParentId] = children;
-            }
-
-            children.Add(item.Id);
-        }
-
         var linkedChildrenByParentId =
             new Dictionary<Guid, List<LinkedReference>>();
         var hydratedLinkedChildrenFolders = new HashSet<Guid>();
         var attemptedLinkedChildrenFolders = new HashSet<Guid>();
-        foreach (var item in itemsById.Values)
-        {
-            if (item is not Folder folder ||
-                !folder.LinkedChildrenLoaded)
-            {
-                continue;
-            }
-
-            hydratedLinkedChildrenFolders.Add(item.Id);
-            foreach (var linkedChild in folder.LinkedChildren)
-            {
-                var childId = ResolveLinkedChildId(
-                    linkedChild,
-                    folder.ContainingFolderPath,
-                    itemsById,
-                    itemsByPath,
-                    itemsByLibraryId);
-                if (!linkedChildrenByParentId.TryGetValue(
-                        item.Id, out var linkedChildren))
-                {
-                    linkedChildren = [];
-                    linkedChildrenByParentId[item.Id] =
-                        linkedChildren;
-                }
-
-                // An unresolved entry is intentionally retained
-                // as an unknown edge. Dropping it would make a
-                // loaded container look empty and could delete
-                // the container.
-                linkedChildren.Add(new LinkedReference(childId));
-            }
-        }
+        var itemsByPath = new Dictionary<string, Guid>(
+            StringComparer.OrdinalIgnoreCase);
 
         var evaluations =
             new Dictionary<EvaluationKey, EvaluationState>();
@@ -196,6 +107,7 @@ public class ContainerCleaner(
                 itemsById,
                 childrenByParentId,
                 linkedChildrenByParentId,
+                itemsByPath,
                 hydratedLinkedChildrenFolders,
                 attemptedLinkedChildrenFolders,
                 evaluations,
@@ -236,44 +148,78 @@ public class ContainerCleaner(
         return changedCount;
     }
 
-    private static void AddUniqueIdentity(
-        IDictionary<string, Guid> identities,
-        string? value,
-        Guid itemId)
+    private BaseItem? GetItem(
+        Guid itemId,
+        IDictionary<Guid, BaseItem> itemsById)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (itemId == Guid.Empty)
         {
-            return;
+            return null;
         }
 
-        if (!identities.TryAdd(value, itemId) &&
-            identities[value] != itemId)
+        if (itemsById.TryGetValue(itemId, out var item))
         {
-            // Multiple items with one identity cannot be
-            // resolved safely.
-            identities[value] = Guid.Empty;
+            return item;
         }
+
+        item = LibraryManager.GetItemById(itemId);
+        if (item is not null)
+        {
+            itemsById.TryAdd(itemId, item);
+        }
+
+        return item;
     }
 
-    private static Guid? ResolveLinkedChildId(
+    private List<Guid> GetPhysicalChildren(
+        Guid parentId,
+        IDictionary<Guid, BaseItem> itemsById,
+        IDictionary<Guid, List<Guid>> childrenByParentId)
+    {
+        if (childrenByParentId.TryGetValue(parentId, out var children))
+        {
+            return children;
+        }
+
+        var items = LibraryManager.GetItemList(
+            new InternalItemsQuery
+            {
+                ParentId = parentId,
+                IncludeOwnedItems = true,
+                GroupByPresentationUniqueKey = false,
+                DtoOptions = new DtoOptions(false)
+            });
+        children = new List<Guid>(items.Count);
+        foreach (var child in items)
+        {
+            if (child.ParentId != parentId)
+            {
+                continue;
+            }
+
+            itemsById.TryAdd(child.Id, child);
+            children.Add(child.Id);
+        }
+
+        childrenByParentId[parentId] = children;
+        return children;
+    }
+
+    private Guid? ResolveLinkedChildId(
         LinkedChild linkedChild,
         string? containingFolderPath,
-        IReadOnlyDictionary<Guid, BaseItem> itemsById,
-        IReadOnlyDictionary<string, Guid> itemsByPath,
-        IReadOnlyDictionary<string, Guid> itemsByLibraryId)
+        IDictionary<Guid, BaseItem> itemsById,
+        IDictionary<string, Guid> itemsByPath)
     {
         if (linkedChild.ItemId is Guid itemId && itemId != Guid.Empty)
         {
-            // Unlike Jellyfin's legacy fallback, a non-empty ItemId
-            // absent from this snapshot stays unknown: stale Path or
-            // LibraryItemId data must not redirect the link and risk
-            // deleting its containing collection.
-            return itemsById.ContainsKey(itemId) ? itemId : null;
+            // A missing ItemId never redirects through stale legacy
+            // identities, even when they point to a valid item.
+            return GetItem(itemId, itemsById) is not null
+                ? itemId
+                : null;
         }
 
-        // These obsolete fields remain necessary for
-        // resolving linked-child data written by older
-        // Jellyfin versions.
 #pragma warning disable CS0618
         var legacyPath = linkedChild.Path;
         var legacyLibraryItemId = linkedChild.LibraryItemId;
@@ -293,10 +239,9 @@ public class ContainerCleaner(
                 {
                     var containingPath = Path.GetFullPath(
                         Path.Join(containingFolderPath, legacyPath));
-                    if (TryResolveIdentity(
-                            itemsByPath,
-                            containingPath,
-                            out var relativePathId))
+                    var relativePathId = ResolvePath(
+                        containingPath, itemsById, itemsByPath);
+                    if (relativePathId is not null)
                     {
                         return relativePathId;
                     }
@@ -315,20 +260,12 @@ public class ContainerCleaner(
                 }
             }
 
-            if (TryResolveIdentity(
-                    itemsByPath, legacyPath, out var pathItemId))
-            {
-                return pathItemId;
-            }
-
-            return null;
+            return ResolvePath(legacyPath, itemsById, itemsByPath);
         }
 
-        if (!string.IsNullOrWhiteSpace(legacyLibraryItemId) &&
-            TryResolveIdentity(
-                itemsByLibraryId,
-                legacyLibraryItemId,
-                out var libraryItemId))
+        if (Guid.TryParse(
+                legacyLibraryItemId, out var libraryItemId) &&
+            GetItem(libraryItemId, itemsById) is not null)
         {
             return libraryItemId;
         }
@@ -336,28 +273,59 @@ public class ContainerCleaner(
         return null;
     }
 
-    private static bool TryResolveIdentity(
-        IReadOnlyDictionary<string, Guid> identities,
-        string identity,
-        out Guid itemId)
+    private Guid? ResolvePath(
+        string path,
+        IDictionary<Guid, BaseItem> itemsById,
+        IDictionary<string, Guid> itemsByPath)
     {
-        if (identities.TryGetValue(identity, out itemId) &&
-            itemId != Guid.Empty)
+        if (!itemsByPath.TryGetValue(path, out var itemId))
         {
-            return true;
+            var matches = LibraryManager.GetItemList(
+                new InternalItemsQuery
+                {
+                    Path = path,
+                    IncludeOwnedItems = true,
+                    GroupByPresentationUniqueKey = false,
+                    DtoOptions = new DtoOptions(false)
+                });
+            itemId = Guid.Empty;
+            foreach (var item in matches)
+            {
+                if (!string.Equals(
+                        item.Path, path,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (itemId != Guid.Empty && itemId != item.Id)
+                {
+                    // Duplicate paths cannot identify one target.
+                    itemId = Guid.Empty;
+                    break;
+                }
+
+                itemId = item.Id;
+                itemsById.TryAdd(item.Id, item);
+            }
+
+            itemsByPath[path] = itemId;
         }
 
-        itemId = Guid.Empty;
-        return false;
+        return itemId != Guid.Empty &&
+            GetItem(itemId, itemsById) is not null
+            ? itemId
+            : null;
     }
 
     private EvaluationState Evaluate(
         Guid rootId,
         bool viaLinkedChild,
-        IReadOnlyDictionary<Guid, BaseItem> itemsById,
-        IReadOnlyDictionary<Guid, List<Guid>> childrenByParentId,
+        IDictionary<Guid, BaseItem> itemsById,
+        IDictionary<Guid, List<Guid>> childrenByParentId,
         IDictionary<Guid, List<LinkedReference>>
             linkedChildrenByParentId,
+        IDictionary<string, Guid> itemsByPath,
         ISet<Guid> hydratedLinkedChildrenFolders,
         ISet<Guid> attemptedLinkedChildrenFolders,
         IDictionary<EvaluationKey, EvaluationState> evaluations,
@@ -399,7 +367,7 @@ public class ContainerCleaner(
                 continue;
             }
 
-            if (!itemsById.TryGetValue(frame.Key.ItemId, out var item))
+            if (GetItem(frame.Key.ItemId, itemsById) is not { } item)
             {
                 frame.State = EvaluationState.Unknown;
                 CompleteFrame(
@@ -415,13 +383,30 @@ public class ContainerCleaner(
                 continue;
             }
 
-            childrenByParentId.TryGetValue(
-                frame.Key.ItemId, out var children);
-            var physicalCount = children?.Count ?? 0;
+            var children = GetPhysicalChildren(
+                frame.Key.ItemId, itemsById, childrenByParentId);
+            var physicalCount = children.Count;
             if (frame.NextEdgeIndex >= physicalCount &&
                 !frame.LinkedChildrenReady)
             {
                 frame.LinkedChildrenReady = true;
+                if (item is Folder loadedFolder &&
+                    loadedFolder.LinkedChildrenLoaded)
+                {
+                    var loadedLinks = new List<LinkedReference>();
+                    foreach (var linkedChild in
+                        loadedFolder.LinkedChildren)
+                    {
+                        loadedLinks.Add(new LinkedReference(
+                            null, linkedChild,
+                            loadedFolder.ContainingFolderPath,
+                            Resolved: false));
+                    }
+
+                    linkedChildrenByParentId[item.Id] = loadedLinks;
+                    hydratedLinkedChildrenFolders.Add(item.Id);
+                }
+
                 if (item is Folder folder &&
                     !folder.LinkedChildrenLoaded)
                 {
@@ -497,7 +482,7 @@ public class ContainerCleaner(
             var edgeIndex = frame.NextEdgeIndex++;
             Guid childId;
             var isLinkedEdge = false;
-            if (children is not null && edgeIndex < children.Count)
+            if (edgeIndex < physicalCount)
             {
                 childId = children[edgeIndex];
             }
@@ -506,7 +491,22 @@ public class ContainerCleaner(
                 isLinkedEdge = true;
                 var linkedIndex = edgeIndex - physicalCount;
                 var linkedReference = linkedChildren![linkedIndex];
-                if (linkedReference.ChildId is not Guid resolvedChildId)
+                if (!linkedReference.Resolved)
+                {
+                    linkedReference = linkedReference with
+                    {
+                        ChildId = ResolveLinkedChildId(
+                            linkedReference.LoadedChild!,
+                            linkedReference.ContainingFolderPath,
+                            itemsById,
+                            itemsByPath),
+                        Resolved = true
+                    };
+                    linkedChildren[linkedIndex] = linkedReference;
+                }
+
+                if (linkedReference.ChildId
+                    is not Guid resolvedChildId)
                 {
                     frame.State = Combine(
                         frame.State, EvaluationState.Unknown);
@@ -607,7 +607,11 @@ public class ContainerCleaner(
         Guid ItemId,
         bool ViaLinkedChild);
 
-    private readonly record struct LinkedReference(Guid? ChildId);
+    private readonly record struct LinkedReference(
+        Guid? ChildId,
+        LinkedChild? LoadedChild = null,
+        string? ContainingFolderPath = null,
+        bool Resolved = true);
 
     private sealed class EvaluationFrame(EvaluationKey key)
     {

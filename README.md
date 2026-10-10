@@ -209,7 +209,9 @@ through their parent ancestry; a stale series ID cannot make episodes
 count for a different series. An episode whose parent chain cannot
 resolve protects its metadata-indicated series against empty-series
 cleanup. If that ID is missing or does not identify an indexed series,
-empty-series cleanup is skipped for every series in that run.
+empty-series cleanup is skipped for every series in that run. In hide
+mode, an empty series can be tagged while its empty seasons are still
+cleaned up independently.
 
 Music artists are retained when they have a physical child album, even
 if that album has no artist metadata, or when a real (non-virtual,
@@ -226,19 +228,23 @@ bypasses presentation-key grouping for the plugin's userless
 queries; cleanup queries still explicitly disable grouping to
 retain distinct physical items if their context changes.
 
-Unloaded ordinary folders are hydrated from persisted linked-child IDs
-only when reached from a selected container through physical or linked
-children and indexed physical descendants have not already established
-real media. Physical edges are checked before persisted links; finding
-media stops traversal without unnecessary linked-child lookups.
-Hydration is attempted once per reached folder per cleanup, not for
-every folder in the library snapshot. Jellyfin 12 offers only
-per-folder linked-child lookup, not a bulk API; selecting all folders
-can still require one lookup for each unloaded folder without physical
-media. BoxSets and Playlists remain unknown while unloaded. If
-hydration fails, or a linked-child identity is missing, unresolved,
-or cyclic, the relationship is treated as unknown. Unknown containers
-are preserved; only confirmed-empty items are hidden or removed.
+Container cleanup selects enabled folder, BoxSet, and Playlist roots
+without loading the whole library graph. It queries physical children
+by parent ID only as a parent is reached, including owned alternate
+versions, and resolves linked targets by item ID, legacy path, or
+legacy library ID only when that link is visited. Each reached parent's
+physical children are queried once per cleanup. Physical edges are
+checked before persisted links; finding media stops traversal without
+unnecessary linked-child lookups or later loaded-link resolutions.
+Unloaded ordinary folders are hydrated from persisted linked-child
+IDs only when reached without already finding physical media. Jellyfin
+12 offers only per-folder linked-child lookup, not a bulk API; selecting
+all folders can still require one child query and one linked-child
+lookup for each media-free folder. BoxSets and Playlists remain unknown
+while unloaded. If hydration fails, or a linked-child identity is
+missing, unresolved, ambiguous, or cyclic, the relationship is treated
+as unknown. Unknown containers are preserved; only confirmed-empty
+items are hidden or removed.
 Media reachable through a cycle can restore previously hidden
 containers regardless of which container was checked first.
 Cancellation is checked during container traversal and before and
@@ -246,12 +252,11 @@ after persisted linked-child lookups. A synchronous lookup already
 running cannot be interrupted, but cancellation stops traversal
 before further lookups or item changes.
 
-For loaded linked children, an indexed non-empty `ItemId` wins.
-Unlike Jellyfin, if that ID is absent from the bulk snapshot, the
-plugin does not redirect the link through possibly stale legacy
-`Path` or `LibraryItemId` fields. An empty or absent `ItemId` can
-resolve through a legacy path, then a legacy library ID only when
-no path is supplied; an unresolved path stays unknown. This
+For loaded linked children, a non-empty `ItemId` wins. If that
+ID is missing, the plugin does not redirect through possibly stale
+legacy `Path` or `LibraryItemId` fields. An empty or absent `ItemId`
+can resolve through a scoped legacy path query, then a legacy library
+ID only when no path is supplied; an unresolved path stays unknown. This
 conservative choice can leave a previously hidden collection
 hidden until its linked identity can be resolved, rather than
 accidentally deleting it or changing its visibility on stale data.
@@ -277,11 +282,13 @@ user visibility.
   to contain media (including through linked identities) or the hide
   tag is removed. If the plugin is uninstalled without first disabling
   hide mode, tags and user policies must be cleaned up manually.
-- Cleanup queries and indexes a whole-library snapshot. On large
-  libraries, loading that snapshot and querying the database can use
-  substantial memory and database resources. A production benchmark
-  on a large Jellyfin installation is still needed; no measured
-  large-library performance is available.
+- Container cleanup avoids a whole-library graph snapshot, but still
+  selects all enabled container roots. Traversing many empty folders
+  can require a child query and linked-child lookup per reached folder;
+  the root list and reachable child lists also consume memory. No
+  representative live Jellyfin database benchmark of query duration,
+  allocations, or peak memory is available; mock fixtures cannot
+  establish large-library performance.
 - Disabling one cleanup category while **Hide instead of delete**
   remains enabled does not reliably clear existing tags. For example,
   hidden movies stay tagged; disabling show cleanup while leaving
