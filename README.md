@@ -180,15 +180,23 @@ The plugin provides two mechanisms:
 Both mechanisms share the same logic and respect the plugin's
 configuration. Saving configuration changes synchronizes the hide
 tag for existing and newly created users. When the hide tag changes,
-the new tag is blocked for users before item metadata is migrated.
+the plugin first saves a `PendingHideTags` journal of possible old and
+new tags in its configuration, before changing any user policy or item.
+It then blocks the new tag for users before migrating item metadata.
 The old tag remains blocked until no items retain it; migration is
-not a database transaction. Cleanup saves the plugin configuration
-only when its recorded hide-tag migration state changes, not on
-every reconciliation. Replacing the configuration during a cleanup
-stops the old run before its next metadata update or deletion.
-If an item metadata update fails or is cancelled during migration,
-its in-memory tags revert to their pre-update state; the old tag stays
-blocked until reconciliation succeeds on a later attempt.
+not a database transaction. If an update fails or is cancelled, the
+journal retains every possible source and target tag. After a Jellyfin
+restart, even with no further configuration save, the next post-scan or
+scheduled cleanup uses that saved journal to migrate all remaining tag
+populations and remove their old user-policy blocks. This also works if the
+configured target remains unchanged or changes again after restart. Only
+after item persistence and policy cleanup are verified does the plugin
+commit the recorded previous tag and reduce the journal to the active tag
+(or clear it when hide mode is disabled). It does not save again on every
+unchanged reconciliation. Replacing the configuration during cleanup stops
+the old run before its next metadata update or deletion. A failed
+item metadata update reverts its in-memory tags to their pre-update
+state; the old tag stays blocked until reconciliation succeeds.
 
 Cleanup execution and metadata updates are awaited asynchronously, while
 cleaner phases remain sequential for predictable progress reporting.
@@ -203,15 +211,20 @@ Items are considered empty when they contain zero relevant media or
 child items that count as real media. Non-missing library media requires
 an actual path; pathless library items do not count even if they are
 marked nonvirtual. A nonvirtual, pathless channel-backed media item
-does count as real media. TV episode and season ownership follows
-the indexed physical parent hierarchy, not stale `SeriesId` metadata.
-Seasons belong to the series reached
+does count as real media. In Jellyfin 12, the `IsMissing` query filter
+uses the item's `IsVirtualItem` state; it does not check whether a retained
+path still exists on disk. Movies and container descendants marked virtual
+do not count as real media even when their paths remain populated.
+TV episode and season ownership follows the indexed physical parent
+hierarchy, not stale `SeriesId` metadata. Seasons belong to the series reached
 through their parent ancestry; a stale series ID cannot make episodes
 count for a different series. An episode whose parent chain cannot
 resolve protects its metadata-indicated series against empty-series
 cleanup. If that ID is missing or does not identify an indexed series,
-empty-series cleanup is skipped for every series in that run. In hide
-mode, an empty series can be tagged while its empty seasons are still
+empty-series cleanup is skipped for every series in that run, with a
+warning in the server log. The same warning applies to empty-season cleanup
+when an episode has neither a resolvable season nor a resolvable series.
+In hide mode, an empty series can be tagged while its empty seasons are still
 cleaned up independently.
 Ownership lookup loads only ancestors reached from seasons and real
 episodes; it does not hydrate the entire library to build a parent index.
@@ -220,15 +233,20 @@ Container cleanup treats linked paths as distinct on case-sensitive platforms,
 so paths differing only by letter case cannot share a cached target. Deleting
 an empty parent also skips its descendants still present in the cleanup snapshot.
 
-Music artists are retained when they have a physical child album, even
-if that album has no artist metadata, or when a real (non-virtual,
-non-missing) album anywhere in the library credits them as an artist
-or album artist. Compilation albums need not be stored inside the
-artist's folder to keep that artist visible.
+Music artists are retained only when an album physically beneath them or
+an album elsewhere in the library that credits them as an artist or album
+artist contains an eligible audio track. Album-artist credits are checked
+through the dedicated `AlbumArtistIds` filter as well as Jellyfin 12's
+combined `ArtistIds` filter. A physical child album need not
+have artist metadata, and compilation albums need not be stored inside
+the artist's folder. A trackless album does not retain its artist, even
+when that album still carries the hide tag in hide mode. For album
+cleanup, an eligible audio track must be nonvirtual and non-missing,
+with either a path or a channel ID; pathless local tracks do not count.
 
 Jellyfin 12 excludes owned items such as alternate versions from
 ordinary library queries. Physical folder and episode indexes,
-movie cleanup, music existence counts, and hide-tag migration
+movie cleanup, music album and track queries, and hide-tag migration
 explicitly include them so an alternate file cannot make its
 parent appear empty or remain hidden after recovery. Jellyfin
 bypasses presentation-key grouping for the plugin's userless
@@ -243,15 +261,14 @@ legacy library ID only when that link is visited. Each reached parent's
 physical children are queried once per cleanup. Physical edges are
 checked before persisted links; finding media stops traversal without
 unnecessary linked-child lookups or later loaded-link resolutions.
-Unloaded ordinary folders are hydrated from persisted linked-child
-IDs only when reached without already finding physical media. Jellyfin
-12 offers only per-folder linked-child lookup, not a bulk API; selecting
-all folders can still require one child query and one linked-child
-lookup for each media-free folder. BoxSets and Playlists remain unknown
-while unloaded. If hydration fails, or a linked-child identity is
-missing, unresolved, ambiguous, or cyclic, the relationship is treated
-as unknown. Unknown containers are preserved; only confirmed-empty
-items are hidden or removed.
+Unloaded ordinary folders, BoxSets, and Playlists consult their persisted
+linked-child IDs only when reached without already finding physical
+media. Jellyfin 12 offers only per-container linked-child lookup, not a
+bulk API; selecting all folders can still require one child query and
+one linked-child lookup for each media-free folder. If that lookup
+fails, or a linked-child identity is missing, unresolved, ambiguous, or
+cyclic, the relationship is treated as unknown. Unknown containers
+are preserved; only confirmed-empty items are hidden or removed.
 Media reachable through a cycle can restore previously hidden
 containers regardless of which container was checked first.
 Cancellation is checked during container traversal and before and

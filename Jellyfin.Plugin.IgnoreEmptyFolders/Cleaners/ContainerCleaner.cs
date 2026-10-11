@@ -448,8 +448,7 @@ public class ContainerCleaner(
                 if (item is Folder folder &&
                     !folder.LinkedChildrenLoaded)
                 {
-                    if (item is not BoxSet and not Playlist &&
-                        linkedChildrenService is not null &&
+                    if (linkedChildrenService is not null &&
                         attemptedLinkedChildrenFolders.Add(item.Id))
                     {
                         try
@@ -498,8 +497,7 @@ public class ContainerCleaner(
                         }
                     }
 
-                    if (item is BoxSet or Playlist ||
-                        !hydratedLinkedChildrenFolders.Contains(
+                    if (!hydratedLinkedChildrenFolders.Contains(
                             item.Id))
                     {
                         frame.State = EvaluationState.Unknown;

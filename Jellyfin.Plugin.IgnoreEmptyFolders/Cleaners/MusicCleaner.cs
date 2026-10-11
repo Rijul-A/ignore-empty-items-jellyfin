@@ -29,19 +29,20 @@ public class MusicCleaner(
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
+        var eligibleAlbums = new Dictionary<Guid, bool>();
         var changedCount = 0;
 
         if (config.DeleteEmptyMusicArtists)
         {
             changedCount += await CleanArtistsAsync(
-                config, progress, cancellationToken
+                config, progress, eligibleAlbums, cancellationToken
             );
         }
 
         if (config.DeleteEmptyMusicAlbums)
         {
             changedCount += await CleanAlbumsAsync(
-                config, progress, cancellationToken
+                config, progress, eligibleAlbums, cancellationToken
             );
         }
 
@@ -51,6 +52,7 @@ public class MusicCleaner(
     private async Task<int> CleanArtistsAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
+        Dictionary<Guid, bool> eligibleAlbums,
         CancellationToken cancellationToken)
     {
         var changedCount = 0;
@@ -72,34 +74,53 @@ public class MusicCleaner(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var albumCount = LibraryManager.GetCount(
+            var hasRealAlbum = HasEligibleAlbum(
                 new InternalItemsQuery
                 {
                     ParentId = artist.Id,
                     IncludeItemTypes = [BaseItemKind.MusicAlbum],
                     IncludeOwnedItems = true,
+                    GroupByPresentationUniqueKey = false,
                     IsVirtualItem = false,
-                    IsMissing = false,
-                    Limit = 0,
                     DtoOptions = new DtoOptions(false)
-                });
-            if (albumCount == 0)
+                },
+                eligibleAlbums,
+                cancellationToken);
+            if (!hasRealAlbum)
             {
-                // ArtistIds covers artist and album-artist credits.
-                albumCount = LibraryManager.GetCount(
+                hasRealAlbum = HasEligibleAlbum(
                     new InternalItemsQuery
                     {
                         ArtistIds = [artist.Id],
                         IncludeItemTypes = [BaseItemKind.MusicAlbum],
                         IncludeOwnedItems = true,
+                        GroupByPresentationUniqueKey = false,
                         IsVirtualItem = false,
-                        IsMissing = false,
-                        Limit = 0,
                         DtoOptions = new DtoOptions(false)
-                    });
+                    },
+                    eligibleAlbums,
+                    cancellationToken);
             }
 
-            if (albumCount == 0)
+            if (!hasRealAlbum)
+            {
+                // Keep a dedicated album-artist filter even though v12
+                // ArtistIds also matches album-artist references.
+                hasRealAlbum = HasEligibleAlbum(
+                    new InternalItemsQuery
+                    {
+                        AlbumArtistIds = [artist.Id],
+                        IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                        IncludeOwnedItems = true,
+                        GroupByPresentationUniqueKey = false,
+                        IsVirtualItem = false,
+                        DtoOptions = new DtoOptions(false)
+                    },
+                    eligibleAlbums,
+                    cancellationToken);
+            }
+
+            if (!hasRealAlbum)
             {
                 if (await HideOrDeleteItemAsync(
                     artist,
@@ -129,6 +150,7 @@ public class MusicCleaner(
     private async Task<int> CleanAlbumsAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
+        Dictionary<Guid, bool> eligibleAlbums,
         CancellationToken cancellationToken)
     {
         var changedCount = 0;
@@ -150,19 +172,7 @@ public class MusicCleaner(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var trackCount = LibraryManager.GetCount(
-                new InternalItemsQuery
-                {
-                    ParentId = album.Id,
-                    IncludeItemTypes = [BaseItemKind.Audio],
-                    IncludeOwnedItems = true,
-                    IsVirtualItem = false,
-                    IsMissing = false,
-                    Limit = 0,
-                    DtoOptions = new DtoOptions(false)
-                });
-
-            if (trackCount == 0)
+            if (!HasRealTracks(album, eligibleAlbums))
             {
                 if (await HideOrDeleteItemAsync(
                     album,
@@ -187,5 +197,45 @@ public class MusicCleaner(
         }
 
         return changedCount;
+    }
+
+    private bool HasEligibleAlbum(
+        InternalItemsQuery query,
+        Dictionary<Guid, bool> eligibleAlbums,
+        CancellationToken cancellationToken)
+    {
+        foreach (var album in LibraryManager.GetItemList(query))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (HasRealTracks(album, eligibleAlbums))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool HasRealTracks(
+        BaseItem album,
+        Dictionary<Guid, bool> eligibleAlbums)
+    {
+        if (eligibleAlbums.TryGetValue(album.Id, out var eligible))
+        {
+            return eligible;
+        }
+
+        eligible = LibraryManager.GetItemList(
+            new InternalItemsQuery
+            {
+                ParentId = album.Id,
+                IncludeItemTypes = [BaseItemKind.Audio],
+                IncludeOwnedItems = true,
+                GroupByPresentationUniqueKey = false,
+                IsVirtualItem = false,
+                DtoOptions = new DtoOptions(false)
+            }).Any(IsRealMedia);
+        eligibleAlbums.Add(album.Id, eligible);
+        return eligible;
     }
 }

@@ -45,6 +45,251 @@ public sealed class ContainerCleanerTests
             Times.Never);
     }
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task UnloadedEmptyLinkedContainerIsHiddenOrDeleted(
+        bool isBoxSet, bool hideInsteadOfDelete)
+    {
+        Folder container = isBoxSet
+            ? new BoxSet { Id = Guid.NewGuid() }
+            : new MediaBrowser.Controller.Playlists.Playlist
+            {
+                Id = Guid.NewGuid()
+            };
+        var links = new Mock<ILinkedChildrenService>();
+        links.Setup(m => m.GetLinkedChildrenIds(container.Id, null))
+            .Returns([]);
+        var library = CreateLibrary([container], [container]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = hideInsteadOfDelete;
+
+        var changedCount = await CreateCleaner(
+            library, links.Object).CleanAsync(
+                config, null, CancellationToken.None);
+
+        Assert.Equal(1, changedCount);
+        links.Verify(
+            m => m.GetLinkedChildrenIds(container.Id, null),
+            Times.Once);
+        AssertNoScalarCounts(library);
+        AssertNoUnrestrictedGraphLookup(library);
+        if (hideInsteadOfDelete)
+        {
+            Assert.Contains(config.HideTag, container.Tags);
+            library.Verify(
+                m => m.UpdateItemAsync(
+                    container, It.IsAny<BaseItem>(),
+                    ItemUpdateType.MetadataEdit,
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+            library.Verify(
+                m => m.DeleteItem(
+                    It.IsAny<BaseItem>(),
+                    It.IsAny<DeleteOptions>()),
+                Times.Never);
+        }
+        else
+        {
+            Assert.DoesNotContain(config.HideTag, container.Tags);
+            library.Verify(
+                m => m.DeleteItem(
+                    container,
+                    It.Is<DeleteOptions>(
+                        o => !o.DeleteFileLocation)),
+                Times.Once);
+            library.Verify(
+                m => m.UpdateItemAsync(
+                    It.IsAny<BaseItem>(), It.IsAny<BaseItem>(),
+                    It.IsAny<ItemUpdateType>(),
+                    It.IsAny<CancellationToken>()),
+                Times.Never);
+        }
+    }
+
+    [Fact]
+    public async Task UnloadedPlaylistWithPersistedMediaIsRestored()
+    {
+        var config = CreateConfig();
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/persisted-playlist-movie.mkv"
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            Tags = [config.HideTag]
+        };
+        var links = new Mock<ILinkedChildrenService>();
+        links.Setup(m => m.GetLinkedChildrenIds(playlist.Id, null))
+            .Returns([media.Id]);
+        var library = CreateLibrary([playlist], [playlist, media]);
+
+        var changedCount = await CreateCleaner(
+            library, links.Object).CleanAsync(
+                config, null, CancellationToken.None);
+
+        Assert.Equal(1, changedCount);
+        Assert.DoesNotContain(config.HideTag, playlist.Tags);
+        links.Verify(
+            m => m.GetLinkedChildrenIds(playlist.Id, null),
+            Times.Once);
+        AssertNoUnrestrictedGraphLookup(library);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                playlist, It.IsAny<BaseItem>(),
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task UnloadedBoxSetWithPersistedMediaIsPreserved(
+        bool hideInsteadOfDelete)
+    {
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/persisted-collection-movie.mkv"
+        };
+        var boxSet = new BoxSet { Id = Guid.NewGuid() };
+        var links = new Mock<ILinkedChildrenService>();
+        links.Setup(m => m.GetLinkedChildrenIds(boxSet.Id, null))
+            .Returns([media.Id]);
+        var library = CreateLibrary([boxSet], [boxSet, media]);
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = hideInsteadOfDelete;
+
+        var changedCount = await CreateCleaner(
+            library, links.Object).CleanAsync(
+                config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        Assert.DoesNotContain(config.HideTag, boxSet.Tags);
+        links.Verify(
+            m => m.GetLinkedChildrenIds(boxSet.Id, null),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(), It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task UnloadedContainerWithUnresolvedPersistedIdIsUnchanged(
+        bool isBoxSet, bool hideInsteadOfDelete)
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = hideInsteadOfDelete;
+        Folder container = isBoxSet
+            ? new BoxSet { Id = Guid.NewGuid() }
+            : new MediaBrowser.Controller.Playlists.Playlist
+            {
+                Id = Guid.NewGuid()
+            };
+        if (hideInsteadOfDelete)
+        {
+            container.Tags = [config.HideTag];
+        }
+
+        var links = new Mock<ILinkedChildrenService>();
+        links.Setup(m => m.GetLinkedChildrenIds(container.Id, null))
+            .Returns([Guid.NewGuid()]);
+        var library = CreateLibrary([container], [container]);
+
+        var changedCount = await CreateCleaner(
+            library, links.Object).CleanAsync(
+                config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        Assert.Equal(
+            hideInsteadOfDelete,
+            container.Tags.Contains(config.HideTag));
+        links.Verify(
+            m => m.GetLinkedChildrenIds(container.Id, null),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(), It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task UnloadedContainerWithFailedLinkLookupIsUnchanged(
+        bool isBoxSet, bool returnsNull)
+    {
+        var config = CreateConfig();
+        Folder container = isBoxSet
+            ? new BoxSet { Id = Guid.NewGuid() }
+            : new MediaBrowser.Controller.Playlists.Playlist
+            {
+                Id = Guid.NewGuid()
+            };
+        container.Tags = [config.HideTag];
+        var links = new Mock<ILinkedChildrenService>();
+        if (returnsNull)
+        {
+            links.Setup(m => m.GetLinkedChildrenIds(container.Id, null))
+                .Returns(() => null!);
+        }
+        else
+        {
+            links.Setup(m => m.GetLinkedChildrenIds(container.Id, null))
+                .Throws(new InvalidOperationException(
+                    "Persisted links unavailable."));
+        }
+
+        var library = CreateLibrary([container], [container]);
+        var changedCount = await CreateCleaner(
+            library, links.Object).CleanAsync(
+                config, null, CancellationToken.None);
+
+        Assert.Equal(0, changedCount);
+        Assert.Contains(config.HideTag, container.Tags);
+        links.Verify(
+            m => m.GetLinkedChildrenIds(container.Id, null),
+            Times.Once);
+        library.Verify(
+            m => m.DeleteItem(
+                It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
+            Times.Never);
+        library.Verify(
+            m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(), It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task LoadedEmptyPlaylistIsDeletedWithoutDeletingFiles()
     {
@@ -1658,6 +1903,120 @@ public sealed class ContainerCleanerTests
                 ),
             Times.Once
         );
+    }
+
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    public async Task
+        RetainedPathMediaOnlyPreservesContainersWhenAvailable(
+        bool linked, bool hideInsteadOfDelete, bool missing)
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = hideInsteadOfDelete;
+        var root = new Folder
+        {
+            Id = Guid.NewGuid(),
+            Name = "Root",
+            LinkedChildren = [],
+            Tags = hideInsteadOfDelete
+                ? [config.HideTag]
+                : []
+        };
+        var nested = new Folder
+        {
+            Id = Guid.NewGuid(),
+            ParentId = linked ? Guid.Empty : root.Id,
+            LinkedChildren = []
+        };
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            ParentId = linked ? Guid.Empty : nested.Id,
+            IsVirtualItem = missing,
+            Path = "/media/retained-path-movie.mkv"
+        };
+        if (linked)
+        {
+            root.LinkedChildren =
+            [
+                new LinkedChild { ItemId = nested.Id }
+            ];
+            nested.LinkedChildren =
+            [
+                CreateLegacyLinkedChild(path: media.Path)
+            ];
+        }
+
+        var library = CreateLibrary(
+            [root], [root, nested, media]);
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(missing
+            ? (hideInsteadOfDelete ? 0 : 1)
+            : (hideInsteadOfDelete ? 1 : 0), changedCount);
+        if (missing)
+        {
+            if (hideInsteadOfDelete)
+            {
+                Assert.Contains(config.HideTag, root.Tags);
+                library.Verify(m => m.UpdateItemAsync(
+                    root, It.IsAny<BaseItem>(),
+                    It.IsAny<ItemUpdateType>(),
+                    It.IsAny<CancellationToken>()), Times.Never);
+            }
+            else
+            {
+                library.Verify(m => m.DeleteItem(
+                    root,
+                    It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+                    Times.Once);
+            }
+        }
+        else
+        {
+            Assert.DoesNotContain(config.HideTag, root.Tags);
+            library.Verify(m => m.DeleteItem(
+                root, It.IsAny<DeleteOptions>()), Times.Never);
+        }
+
+        AssertNoUnrestrictedGraphLookup(library);
+    }
+
+    [Fact]
+    public async Task
+        MissingMediaWithUnresolvedLinkedSiblingKeepsContainer()
+    {
+        var media = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Path = "/media/missing-sibling.mkv",
+            IsVirtualItem = true
+        };
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist
+        {
+            Id = Guid.NewGuid(),
+            LinkedChildren =
+            [
+                new LinkedChild { ItemId = media.Id },
+                new LinkedChild { ItemId = Guid.NewGuid() }
+            ]
+        };
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+        var library = CreateLibrary([playlist], [playlist, media]);
+
+        Assert.Equal(0, await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None));
+        library.Verify(m => m.DeleteItem(
+            playlist, It.IsAny<DeleteOptions>()), Times.Never);
     }
 
     [Fact]

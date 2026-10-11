@@ -508,7 +508,8 @@ public sealed class ConfigurationMigrationTests
             movies,
             movie => Assert.Contains("hidden", movie.Tags));
         Assert.Equal(["hidden"], userDto.Policy!.BlockedTags);
-        Assert.Empty(saves);
+        Assert.Single(saves);
+        Assert.Equal(["hidden"], configuration.PendingHideTags);
         library.Verify(
             m => m.UpdateItemAsync(
                 It.IsAny<BaseItem>(),
@@ -622,7 +623,8 @@ public sealed class ConfigurationMigrationTests
                 TestContext.Current.CancellationToken);
             Assert.Equal(["A"], persistedItemTags);
             Assert.Equal(["A", "B"], persistedBlockedTags);
-            Assert.Empty(savedConfigurations);
+            Assert.Contains(configurationB, savedConfigurations);
+            Assert.Equal(["A", "B"], configurationB.PendingHideTags);
             Assert.Equal("A", configurationB.PreviousHideTag);
             plugin.UpdateConfiguration(configurationC);
         }
@@ -636,8 +638,9 @@ public sealed class ConfigurationMigrationTests
         Assert.Equal(["C"], persistedBlockedTags);
         Assert.Equal("C", configurationC.PreviousHideTag);
         Assert.True(configurationC.HideInsteadOfDeleteWasActive);
-        Assert.DoesNotContain(configurationB, savedConfigurations);
+        Assert.Contains(configurationB, savedConfigurations);
         Assert.Contains(configurationC, savedConfigurations);
+        Assert.Equal(["C"], configurationC.PendingHideTags);
     }
 
     [Fact]
@@ -732,7 +735,8 @@ public sealed class ConfigurationMigrationTests
         Assert.Equal(["A"], persistedTags);
         Assert.Equal(["A", "B"], persistedBlockedTags);
         Assert.Equal("A", config.PreviousHideTag);
-        Assert.Empty(saved);
+        Assert.Contains(config, saved);
+        Assert.Equal(["A", "B"], config.PendingHideTags);
 
         persistUpdates = true;
         await manager.HandleConfigurationChangedAsync(
@@ -744,6 +748,409 @@ public sealed class ConfigurationMigrationTests
         Assert.Equal(["B"], persistedBlockedTags);
         Assert.Equal("B", config.PreviousHideTag);
         Assert.Contains(config, saved);
+        Assert.Equal(["B"], config.PendingHideTags);
+    }
+
+    [Fact]
+    public async Task FailedMigrationRecoversBothTagPopulationsAfterRestart()
+    {
+        var originalConfiguration = new PluginConfiguration
+        {
+            HideInsteadOfDelete = true,
+            HideTag = "B",
+            PreviousHideTag = "A",
+            HideInsteadOfDeleteWasActive = true
+        };
+        var savedSnapshots = new List<PluginConfiguration>();
+        static PluginConfiguration Snapshot(PluginConfiguration source) =>
+            new()
+            {
+                HideInsteadOfDelete = source.HideInsteadOfDelete,
+                HideTag = source.HideTag,
+                PreviousHideTag = source.PreviousHideTag,
+                PendingHideTags = [.. source.PendingHideTags],
+                HideInsteadOfDeleteWasActive =
+                    source.HideInsteadOfDeleteWasActive,
+                HideTagSkipAdmins = source.HideTagSkipAdmins
+            };
+
+        _ = CreatePlugin(
+            originalConfiguration,
+            value => savedSnapshots.Add(
+                Snapshot((PluginConfiguration)value)));
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var persistedItems = new Dictionary<Guid, string[]>
+        {
+            [firstId] = ["A"],
+            [secondId] = ["A"]
+        };
+        string[] persistedBlocks = ["A"];
+        var user = new User("user", "auth", "reset");
+        var failSecondUpdate = true;
+        var itemUpdates = 0;
+        var policyUpdates = 0;
+        var library = new Mock<ILibraryManager>();
+        library
+            .Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) =>
+            {
+                Assert.True(query.IncludeOwnedItems);
+                Assert.False(query.GroupByPresentationUniqueKey);
+                return persistedItems
+                    .Where(entry => entry.Value.Contains(
+                        query.Tags.Single(),
+                        StringComparer.OrdinalIgnoreCase))
+                    .Select(entry => (BaseItem)new Movie
+                    {
+                        Id = entry.Key,
+                        Tags = [.. entry.Value]
+                    })
+                    .ToList();
+            });
+        library
+            .Setup(m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((
+                BaseItem item,
+                BaseItem _,
+                ItemUpdateType _,
+                CancellationToken _) =>
+            {
+                itemUpdates++;
+                Assert.NotEmpty(savedSnapshots);
+                Assert.Equal(
+                    failSecondUpdate ? ["A", "B"] : new[] { "A", "B", "C" },
+                    savedSnapshots[^1].PendingHideTags);
+                Assert.Contains(
+                    failSecondUpdate ? "B" : "C",
+                    persistedBlocks);
+                if (failSecondUpdate && item.Id == secondId)
+                {
+                    return Task.FromException(
+                        new InvalidOperationException(
+                            "Second item could not be saved"));
+                }
+
+                persistedItems[item.Id] = [.. item.Tags];
+                return Task.CompletedTask;
+            });
+        var users = new Mock<IUserManager>();
+        users.Setup(m => m.GetUsers()).Returns([user]);
+        users
+            .Setup(m => m.GetUserDto(user, It.IsAny<string>()))
+            .Returns(() => new UserDto
+            {
+                Policy = new UserPolicy
+                {
+                    BlockedTags = [.. persistedBlocks]
+                }
+            });
+        users
+            .Setup(m => m.UpdatePolicyAsync(
+                user.Id,
+                It.IsAny<UserPolicy>()))
+            .Returns((Guid _, UserPolicy policy) =>
+            {
+                policyUpdates++;
+                Assert.NotEmpty(savedSnapshots);
+                Assert.Equal(
+                    failSecondUpdate ? ["A", "B"] : new[] { "A", "B", "C" },
+                    savedSnapshots[^1].PendingHideTags);
+                persistedBlocks = [.. policy.BlockedTags];
+                return Task.CompletedTask;
+            });
+        var firstManager = new LibraryCleanupManager(
+            library.Object,
+            users.Object,
+            NullLoggerFactory.Instance);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => firstManager.HandleConfigurationChangedAsync(
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, itemUpdates);
+        Assert.Equal(1, policyUpdates);
+        Assert.Equal(["B"], persistedItems[firstId]);
+        Assert.Equal(["A"], persistedItems[secondId]);
+        Assert.Equal(["A", "B"], persistedBlocks);
+        Assert.Equal("A", originalConfiguration.PreviousHideTag);
+        Assert.Equal("A", savedSnapshots[^1].PreviousHideTag);
+        Assert.Equal(["A", "B"], savedSnapshots[^1].PendingHideTags);
+        Assert.NotSame(
+            originalConfiguration.PendingHideTags,
+            savedSnapshots[^1].PendingHideTags);
+
+        var restartedConfiguration = Snapshot(savedSnapshots[^1]);
+        restartedConfiguration.HideTag = "C";
+        _ = CreatePlugin(
+            restartedConfiguration,
+            value => savedSnapshots.Add(
+                Snapshot((PluginConfiguration)value)));
+        var restartedManager = new LibraryCleanupManager(
+            library.Object,
+            users.Object,
+            NullLoggerFactory.Instance);
+        failSecondUpdate = false;
+
+        await restartedManager.HandleConfigurationChangedAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(["C"], persistedItems[firstId]);
+        Assert.Equal(["C"], persistedItems[secondId]);
+        Assert.Equal(["C"], persistedBlocks);
+        Assert.Equal("C", restartedConfiguration.PreviousHideTag);
+        Assert.Equal(["C"], restartedConfiguration.PendingHideTags);
+        Assert.Equal("C", savedSnapshots[^1].PreviousHideTag);
+        Assert.Equal(["C"], savedSnapshots[^1].PendingHideTags);
+    }
+
+    [Fact]
+    public async Task CleanupRecoversInterruptedMigrationAfterRestartWithoutConfigurationChange()
+    {
+        var originalConfiguration = new PluginConfiguration
+        {
+            HideInsteadOfDelete = true,
+            HideTag = "B",
+            PreviousHideTag = "A",
+            HideInsteadOfDeleteWasActive = true,
+            DeleteEmptyShows = false,
+            DeleteEmptySeasons = false,
+            DeleteEmptyMovies = false,
+            DeleteEmptyMusicArtists = false,
+            DeleteEmptyMusicAlbums = false,
+            DeleteEmptyCollections = false,
+            DeleteEmptyFolders = false,
+            DeleteEmptyPlaylists = false
+        };
+        static PluginConfiguration Snapshot(PluginConfiguration source) =>
+            new()
+            {
+                HideInsteadOfDelete = source.HideInsteadOfDelete,
+                HideTag = source.HideTag,
+                PreviousHideTag = source.PreviousHideTag,
+                PendingHideTags = [.. source.PendingHideTags],
+                HideInsteadOfDeleteWasActive =
+                    source.HideInsteadOfDeleteWasActive,
+                HideTagSkipAdmins = source.HideTagSkipAdmins,
+                DeleteEmptyShows = source.DeleteEmptyShows,
+                DeleteEmptySeasons = source.DeleteEmptySeasons,
+                DeleteEmptyMovies = source.DeleteEmptyMovies,
+                DeleteEmptyMusicArtists = source.DeleteEmptyMusicArtists,
+                DeleteEmptyMusicAlbums = source.DeleteEmptyMusicAlbums,
+                DeleteEmptyCollections = source.DeleteEmptyCollections,
+                DeleteEmptyFolders = source.DeleteEmptyFolders,
+                DeleteEmptyPlaylists = source.DeleteEmptyPlaylists
+            };
+        var savedSnapshots = new List<PluginConfiguration>();
+        _ = CreatePlugin(
+            originalConfiguration,
+            value => savedSnapshots.Add(
+                Snapshot((PluginConfiguration)value)));
+
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var persistedItems = new Dictionary<Guid, string[]>
+        {
+            [firstId] = ["A"],
+            [secondId] = ["A"]
+        };
+        string[] persistedBlocks = ["A"];
+        var failSecondUpdate = true;
+        var library = new Mock<ILibraryManager>();
+        library
+            .Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) =>
+            {
+                return persistedItems
+                    .Where(entry => entry.Value.Contains(
+                        query.Tags.Single(),
+                        StringComparer.OrdinalIgnoreCase))
+                    .Select(entry => (BaseItem)new Movie
+                    {
+                        Id = entry.Key,
+                        Tags = [.. entry.Value]
+                    })
+                    .ToList();
+            });
+        library
+            .Setup(m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((
+                BaseItem item,
+                BaseItem _,
+                ItemUpdateType _,
+                CancellationToken _) =>
+            {
+                Assert.NotEmpty(savedSnapshots);
+                Assert.Equal(["A", "B"], savedSnapshots[^1].PendingHideTags);
+                Assert.Contains("B", persistedBlocks);
+                if (failSecondUpdate && item.Id == secondId)
+                {
+                    return Task.FromException(
+                        new InvalidOperationException(
+                            "Second item could not be saved"));
+                }
+
+                persistedItems[item.Id] = [.. item.Tags];
+                return Task.CompletedTask;
+            });
+        var user = new User("user", "auth", "reset");
+        var users = new Mock<IUserManager>();
+        users.Setup(m => m.GetUsers()).Returns([user]);
+        users
+            .Setup(m => m.GetUserDto(user, It.IsAny<string>()))
+            .Returns(() => new UserDto
+            {
+                Policy = new UserPolicy
+                {
+                    BlockedTags = [.. persistedBlocks]
+                }
+            });
+        users
+            .Setup(m => m.UpdatePolicyAsync(
+                user.Id,
+                It.IsAny<UserPolicy>()))
+            .Returns((Guid _, UserPolicy policy) =>
+            {
+                Assert.NotEmpty(savedSnapshots);
+                Assert.Equal(["A", "B"], savedSnapshots[^1].PendingHideTags);
+                persistedBlocks = [.. policy.BlockedTags];
+                return Task.CompletedTask;
+            });
+        var firstManager = new LibraryCleanupManager(
+            library.Object,
+            users.Object,
+            NullLoggerFactory.Instance);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => firstManager.HandleConfigurationChangedAsync(
+                TestContext.Current.CancellationToken));
+        Assert.Equal(["B"], persistedItems[firstId]);
+        Assert.Equal(["A"], persistedItems[secondId]);
+        Assert.Equal(["A", "B"], persistedBlocks);
+        Assert.Equal("A", savedSnapshots[^1].PreviousHideTag);
+        Assert.Equal(["A", "B"], savedSnapshots[^1].PendingHideTags);
+
+        var restartedConfiguration = Snapshot(savedSnapshots[^1]);
+        Assert.Equal("B", restartedConfiguration.HideTag);
+        var savesBeforeCleanup = savedSnapshots.Count;
+        _ = CreatePlugin(
+            restartedConfiguration,
+            value => savedSnapshots.Add(
+                Snapshot((PluginConfiguration)value)));
+        Assert.Equal(savesBeforeCleanup, savedSnapshots.Count);
+        failSecondUpdate = false;
+        var restartedManager = new LibraryCleanupManager(
+            library.Object,
+            users.Object,
+            NullLoggerFactory.Instance);
+
+        await restartedManager.CleanLibraryAsync(
+            new Progress<double>(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(["B"], persistedItems[firstId]);
+        Assert.Equal(["B"], persistedItems[secondId]);
+        Assert.Equal(["B"], persistedBlocks);
+        Assert.Equal("B", restartedConfiguration.PreviousHideTag);
+        Assert.Equal(["B"], restartedConfiguration.PendingHideTags);
+        Assert.True(savedSnapshots.Count > savesBeforeCleanup);
+        Assert.Equal("B", savedSnapshots[^1].PreviousHideTag);
+        Assert.Equal(["B"], savedSnapshots[^1].PendingHideTags);
+    }
+
+    [Fact]
+    public async Task MigrationCanonicalizesExistingDestinationTags()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HideInsteadOfDelete = true,
+            HideTag = "B",
+            PreviousHideTag = "A",
+            HideInsteadOfDeleteWasActive = true
+        };
+        _ = CreatePlugin(configuration);
+        var itemId = Guid.NewGuid();
+        string[] persistedTags = ["a", "b", "B", "other"];
+        string[] persistedBlocks = ["A", "b"];
+        var library = new Mock<ILibraryManager>();
+        library
+            .Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) =>
+                persistedTags.Contains(
+                    query.Tags.Single(),
+                    StringComparer.OrdinalIgnoreCase)
+                    ? [new Movie
+                    {
+                        Id = itemId,
+                        Tags = [.. persistedTags]
+                    }]
+                    : []);
+        library
+            .Setup(m => m.UpdateItemAsync(
+                It.IsAny<BaseItem>(),
+                It.IsAny<BaseItem>(),
+                It.IsAny<ItemUpdateType>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((
+                BaseItem item,
+                BaseItem _,
+                ItemUpdateType _,
+                CancellationToken _) =>
+            {
+                persistedTags = [.. item.Tags];
+                return Task.CompletedTask;
+            });
+        var user = new User("user", "auth", "reset");
+        var users = new Mock<IUserManager>();
+        users.Setup(m => m.GetUsers()).Returns([user]);
+        users
+            .Setup(m => m.GetUserDto(user, It.IsAny<string>()))
+            .Returns(() => new UserDto
+            {
+                Policy = new UserPolicy
+                {
+                    BlockedTags = [.. persistedBlocks]
+                }
+            });
+        users
+            .Setup(m => m.UpdatePolicyAsync(
+                user.Id,
+                It.IsAny<UserPolicy>()))
+            .Returns((Guid _, UserPolicy policy) =>
+            {
+                persistedBlocks = [.. policy.BlockedTags];
+                return Task.CompletedTask;
+            });
+        var manager = new LibraryCleanupManager(
+            library.Object,
+            users.Object,
+            NullLoggerFactory.Instance);
+
+        await manager.HandleConfigurationChangedAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(["other", "B"], persistedTags);
+        Assert.DoesNotContain(
+            persistedTags,
+            tag => tag.Equals("A", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            persistedBlocks,
+            tag => tag.Equals("A", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            persistedBlocks,
+            tag => tag.Equals("B", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(["B"], configuration.PendingHideTags);
     }
 
     [Theory]
@@ -863,7 +1270,10 @@ public sealed class ConfigurationMigrationTests
             blockedTags);
         Assert.Equal("A", config.PreviousHideTag);
         Assert.True(config.HideInsteadOfDeleteWasActive);
-        Assert.Empty(saved);
+        Assert.Contains(config, saved);
+        Assert.Equal(
+            replaceTag ? ["A", "B"] : ["A"],
+            config.PendingHideTags);
 
         await manager.HandleConfigurationChangedAsync(
             TestContext.Current.CancellationToken);
@@ -879,6 +1289,9 @@ public sealed class ConfigurationMigrationTests
             replaceTag ? "B" : string.Empty,
             config.PreviousHideTag);
         Assert.Equal(replaceTag, config.HideInsteadOfDeleteWasActive);
+        Assert.Equal(
+            replaceTag ? ["B"] : Array.Empty<string>(),
+            config.PendingHideTags);
         Assert.Contains(config, saved);
     }
 
@@ -1094,6 +1507,9 @@ public sealed class ConfigurationMigrationTests
                 persistedPolicies[second.Id]);
             Assert.Equal(["A"], persistedPolicies[admin.Id]);
             Assert.Equal("A", config.PreviousHideTag);
+            Assert.Equal(
+                replaceTag ? ["A", "B"] : ["A"],
+                config.PendingHideTags);
             return;
         }
 
@@ -1113,6 +1529,9 @@ public sealed class ConfigurationMigrationTests
         Assert.Equal(
             replaceTag ? "B" : string.Empty,
             config.PreviousHideTag);
+        Assert.Equal(
+            replaceTag ? ["B"] : Array.Empty<string>(),
+            config.PendingHideTags);
     }
 
     [Fact]

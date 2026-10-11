@@ -105,34 +105,59 @@ public class LibraryCleanupManager(
                 static _ => new MigrationState());
             InitializeState(state, config);
 
+            // Keep every plausible source in memory as well as on disk:
+            // a replacement configuration can omit the journal, while a
+            // process restart cannot recover the in-memory history.
+            var pendingTags = state.KnownTags;
+            if (config.PendingHideTags is not null)
+            {
+                foreach (var pendingTag in config.PendingHideTags)
+                {
+                    if (!string.IsNullOrWhiteSpace(pendingTag))
+                    {
+                        pendingTags.Add(pendingTag);
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(state.LastAppliedTag))
+            {
+                pendingTags.Add(state.LastAppliedTag);
+            }
+
             if (!string.IsNullOrWhiteSpace(config.PreviousHideTag))
             {
-                state.KnownTags.Add(config.PreviousHideTag);
+                pendingTags.Add(config.PreviousHideTag);
             }
 
             if (!string.IsNullOrWhiteSpace(targetTag))
             {
-                state.KnownTags.Add(targetTag);
+                pendingTags.Add(targetTag);
             }
 
-            var sourceTags = new List<string>();
-            if (!string.IsNullOrWhiteSpace(state.LastAppliedTag))
+            // Journal before touching any user policy or item. Retain all
+            // entries until every source and its policy cleanup succeeds.
+            if (config.PendingHideTags is null ||
+                config.PendingHideTags.Length != pendingTags.Count ||
+                !pendingTags.SetEquals(config.PendingHideTags))
             {
-                sourceTags.Add(state.LastAppliedTag);
+                if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                    !ReferenceEquals(config, plugin.Configuration) ||
+                    !IsCurrentConfiguration(plugin, targetTag))
+                {
+                    continue;
+                }
+
+                config.PendingHideTags = [.. pendingTags];
+                plugin.SaveConfiguration(config);
             }
 
-            if (!string.IsNullOrWhiteSpace(config.PreviousHideTag))
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, targetTag))
             {
-                sourceTags.Add(config.PreviousHideTag);
+                continue;
             }
-
-            sourceTags.AddRange(state.KnownTags);
-            sourceTags = sourceTags
-                .Where(tag => !tag.Equals(
-                    targetTag,
-                    StringComparison.OrdinalIgnoreCase))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
 
             if (!string.IsNullOrEmpty(targetTag) &&
                 !await EnsureUsersBlockTagAsync(
@@ -146,8 +171,15 @@ public class LibraryCleanupManager(
             }
 
             var migrationCompleted = true;
-            foreach (var sourceTag in sourceTags)
+            foreach (var sourceTag in pendingTags)
             {
+                if (sourceTag.Equals(
+                    targetTag,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 if (await MigrateTagAsync(
                         sourceTag,
                         targetTag,
@@ -168,6 +200,8 @@ public class LibraryCleanupManager(
                 continue;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!ReferenceEquals(plugin, Plugin.Instance) ||
                 !ReferenceEquals(config, plugin.Configuration) ||
                 !IsCurrentConfiguration(plugin, targetTag))
@@ -181,14 +215,33 @@ public class LibraryCleanupManager(
                     targetTag,
                     StringComparison.Ordinal) ||
                 config.HideInsteadOfDeleteWasActive !=
-                    !string.IsNullOrEmpty(targetTag);
+                    !string.IsNullOrEmpty(targetTag) ||
+                (string.IsNullOrEmpty(targetTag)
+                    ? config.PendingHideTags is null ||
+                        config.PendingHideTags.Length != 0
+                    : config.PendingHideTags is not [var onlyTag] ||
+                        !string.Equals(
+                            onlyTag,
+                            targetTag,
+                            StringComparison.Ordinal));
             if (wasChanged)
             {
                 config.PreviousHideTag = targetTag;
                 config.HideInsteadOfDeleteWasActive =
                     !string.IsNullOrEmpty(targetTag);
+                config.PendingHideTags = string.IsNullOrEmpty(targetTag)
+                    ? []
+                    : [targetTag];
                 plugin.SaveConfiguration(config);
             }
+
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, targetTag))
+            {
+                continue;
+            }
+
             state.LastAppliedTag = targetTag;
             state.KnownTags.Clear();
             return;
@@ -364,7 +417,8 @@ public class LibraryCleanupManager(
         };
         var taggedItems = libraryManager.GetItemList(tagQuery);
 
-        if (!ReferenceEquals(config, plugin.Configuration) ||
+        if (!ReferenceEquals(plugin, Plugin.Instance) ||
+            !ReferenceEquals(config, plugin.Configuration) ||
             !IsCurrentConfiguration(plugin, newTag))
         {
             return false;
@@ -372,20 +426,23 @@ public class LibraryCleanupManager(
 
         foreach (var item in taggedItems)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!ReferenceEquals(config, plugin.Configuration) ||
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
                 !IsCurrentConfiguration(plugin, newTag))
             {
                 return false;
             }
 
             var originalTags = item.Tags;
-            var tags = originalTags
-                .Where(t => !t.Equals(
-                    oldTag, StringComparison.OrdinalIgnoreCase));
             item.Tags = string.IsNullOrEmpty(newTag)
-                ? [.. tags]
-                : [.. tags, newTag];
+                ? [.. originalTags.Where(t => !t.Equals(
+                    oldTag, StringComparison.OrdinalIgnoreCase))]
+                : [.. originalTags.Where(t =>
+                    !t.Equals(
+                        oldTag, StringComparison.OrdinalIgnoreCase) &&
+                    !t.Equals(
+                        newTag, StringComparison.OrdinalIgnoreCase)),
+                    newTag];
             try
             {
                 await libraryManager.UpdateItemAsync(
@@ -407,7 +464,8 @@ public class LibraryCleanupManager(
             taggedItems.Count);
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (!ReferenceEquals(config, plugin.Configuration) ||
+        if (!ReferenceEquals(plugin, Plugin.Instance) ||
+            !ReferenceEquals(config, plugin.Configuration) ||
             !IsCurrentConfiguration(plugin, newTag))
         {
             return false;
@@ -417,7 +475,8 @@ public class LibraryCleanupManager(
         // unblocking its old tag before it is persisted without it.
         if (libraryManager.GetItemList(tagQuery).Count != 0)
         {
-            if (!ReferenceEquals(config, plugin.Configuration) ||
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
                 !IsCurrentConfiguration(plugin, newTag))
             {
                 return false;
@@ -432,7 +491,8 @@ public class LibraryCleanupManager(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!ReferenceEquals(config, plugin.Configuration) ||
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
                 !IsCurrentConfiguration(plugin, newTag))
             {
                 return false;
@@ -472,7 +532,8 @@ public class LibraryCleanupManager(
             "{Count} users",
             users.Count);
 
-        if (!ReferenceEquals(config, plugin.Configuration) ||
+        if (!ReferenceEquals(plugin, Plugin.Instance) ||
+            !ReferenceEquals(config, plugin.Configuration) ||
             !IsCurrentConfiguration(plugin, tag))
         {
             return false;
@@ -480,7 +541,8 @@ public class LibraryCleanupManager(
 
         foreach (var user in users)
         {
-            if (!ReferenceEquals(config, plugin.Configuration) ||
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
                 !IsCurrentConfiguration(plugin, tag))
             {
                 return false;
@@ -489,7 +551,8 @@ public class LibraryCleanupManager(
             cancellationToken.ThrowIfCancellationRequested();
             await SyncUserTagAsync(user, tag, skipAdmins);
 
-            if (!ReferenceEquals(config, plugin.Configuration) ||
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
                 !IsCurrentConfiguration(plugin, tag) ||
                 config.HideTagSkipAdmins != skipAdmins)
             {

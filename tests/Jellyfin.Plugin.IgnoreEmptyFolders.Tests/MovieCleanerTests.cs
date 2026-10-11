@@ -86,6 +86,61 @@ public sealed class MovieCleanerTests
     }
 
     [Fact]
+    public async Task
+        MissingMovieWithRetainedPathIsHiddenWithoutRestoring()
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = true;
+        var missing = NewMovie("Missing", config);
+        missing.Path = "/media/missing.mkv";
+        missing.IsVirtualItem = true;
+        missing.Tags = [];
+        var alreadyHidden = NewMovie("Already hidden missing", config);
+        alreadyHidden.Path = "/media/already-hidden.mkv";
+        alreadyHidden.IsVirtualItem = true;
+        var available = NewMovie("Available", config);
+        available.Path = "/media/available.mkv";
+        var library = CreateLibrary(
+            [missing, alreadyHidden, available]);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(2, changedCount);
+        Assert.Contains(config.HideTag, missing.Tags);
+        Assert.Contains(config.HideTag, alreadyHidden.Tags);
+        Assert.DoesNotContain(config.HideTag, available.Tags);
+        library.Verify(m => m.UpdateItemAsync(
+            alreadyHidden, It.IsAny<BaseItem>(),
+            It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task
+        MissingMovieWithRetainedPathIsDeletedWithoutDeletingFile()
+    {
+        var config = CreateConfig();
+        config.HideInsteadOfDelete = false;
+        var missing = NewMovie("Missing", config);
+        missing.Path = "/media/missing.mkv";
+        missing.IsVirtualItem = true;
+        var available = NewMovie("Available", config);
+        available.Path = "/media/available.mkv";
+        var library = CreateLibrary([missing, available]);
+
+        var changedCount = await CreateCleaner(library).CleanAsync(
+            config, null, CancellationToken.None);
+
+        Assert.Equal(1, changedCount);
+        library.Verify(m => m.DeleteItem(
+            missing, It.Is<DeleteOptions>(o => !o.DeleteFileLocation)),
+            Times.Once);
+        library.Verify(m => m.DeleteItem(
+            available, It.IsAny<DeleteOptions>()), Times.Never);
+    }
+
+    [Fact]
     public async Task OwnedVersionWithSharedPresentationKeyIsCleaned()
     {
         var config = CreateConfig();
@@ -153,18 +208,11 @@ public sealed class MovieCleanerTests
                         movie.OwnerId == Guid.Empty);
                 }
 
-                if (query.IsVirtualItem is bool isVirtual)
+                if ((query.IsVirtualItem ?? query.IsMissing) is
+                    bool isVirtual)
                 {
                     selected = selected.Where(movie =>
                         movie.IsVirtualItem == isVirtual);
-                }
-
-                if (query.IsMissing is bool isMissing)
-                {
-                    selected = selected.Where(movie =>
-                        (string.IsNullOrWhiteSpace(movie.Path) &&
-                            movie.ChannelId == Guid.Empty) ==
-                            isMissing);
                 }
 
                 if (query.GroupByPresentationUniqueKey)

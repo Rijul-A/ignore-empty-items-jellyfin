@@ -70,6 +70,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public string PreviousHideTag { get; set; } = string.Empty;
 
     /// <summary>
+    /// Hide tags that may still exist on items or in user policies
+    /// after an interrupted migration.
+    /// </summary>
+    public string[] PendingHideTags { get; set; } = [];
+
+    /// <summary>
     /// Tracks whether hide mode was active on the last run,
     /// used to detect toggle-off and trigger cleanup.
     /// </summary>
