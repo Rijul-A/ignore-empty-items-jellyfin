@@ -9,8 +9,12 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class MovieCleaner(
     ILibraryManager libraryManager,
-    ILogger<MovieCleaner> logger)
-    : BaseItemCleaner(libraryManager, logger)
+    ILogger<MovieCleaner> logger,
+    Func<PluginConfiguration, bool>? isConfigurationCurrent = null)
+    : BaseItemCleaner(
+        libraryManager,
+        logger,
+        isConfigurationCurrent)
 {
 
     public override double Weight => CleanupWeights.Movies;
@@ -20,101 +24,52 @@ public class MovieCleaner(
         return config.DeleteEmptyMovies;
     }
 
-    public override int Clean(
+    public override async Task<int> CleanAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        if (config.HideInsteadOfDelete)
-        {
-            // movies that have the tag and are neither virtual
-            // nor missing should be untagged.
-            var taggedMovies = LibraryManager.GetItemList(
-                new InternalItemsQuery
-                {
-                    IncludeItemTypes = [BaseItemKind.Movie],
-                    Tags = [config.HideTag],
-                    IsVirtualItem = false,
-                    IsMissing = false,
-                    DtoOptions = new DtoOptions(false)
-                });
-
-            foreach (var movie in taggedMovies)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                UntagItem(movie, config.HideTag, cancellationToken);
-            }
-        }
-
+        var changedCount = 0;
         var movies = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.Movie],
-                IsVirtualItem = true,
+                GroupByPresentationUniqueKey = false,
+                IncludeOwnedItems = true,
                 DtoOptions = new DtoOptions(false)
             });
-
-        var missingMovies = LibraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Movie],
-                IsMissing = true,
-                DtoOptions = new DtoOptions(false)
-            });
-
-        var allEmptyMovies = movies.Concat(missingMovies).ToList();
 
         Logger.LogInformation(
-            "Ignore Empty Items: Checking {Count} empty movies",
-            allEmptyMovies.Count);
+            "Ignore Empty Items: Checking {Count} movies",
+            movies.Count);
 
-        var removedCount = 0;
-        var total = allEmptyMovies.Count;
-
+        var total = movies.Count;
         for (var i = 0; i < total; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var movie = allEmptyMovies[i];
-
-            if (config.LogDeletions)
+            var movie = movies[i];
+            if (IsRealMedia(movie))
             {
-                Logger.LogInformation(
-                    "Ignore Empty Items: Removing movie \"{Name}\"",
-                    movie.Name);
-            }
-
-            if (config.HideInsteadOfDelete)
-            {
-                TagItem(movie, config.HideTag, cancellationToken);
-                removedCount++;
-            }
-            else
-            {
-                try
+                if (config.HideInsteadOfDelete &&
+                    await UntagItemAsync(
+                        movie, config, cancellationToken))
                 {
-                    LibraryManager.DeleteItem(
-                        movie,
-                        new DeleteOptions
-                        {
-                            DeleteFileLocation = false
-                        }
-                    );
-                    removedCount++;
+                    changedCount++;
                 }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(
-                        ex,
-                        "Ignore Empty Items: Failed to remove " +
-                        "movie \"{Name}\"",
-                        movie.Name);
-                }
+            }
+            else if (await HideOrDeleteItemAsync(
+                movie,
+                "movie",
+                config,
+                cancellationToken))
+            {
+                changedCount++;
             }
 
             ReportProgress(progress, i + 1, total);
         }
 
-        return removedCount;
+        return changedCount;
     }
 }

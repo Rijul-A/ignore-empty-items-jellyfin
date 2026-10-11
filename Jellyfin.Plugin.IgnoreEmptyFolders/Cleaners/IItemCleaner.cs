@@ -23,7 +23,7 @@ public interface IItemCleaner
     /// <summary>
     /// Performs the cleanup operation.
     /// </summary>
-    int Clean(
+    Task<int> CleanAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken);

@@ -85,8 +85,11 @@ Requires the .NET 10 SDK and ASP.NET Core runtime:
 make test
 ```
 
-The tests cover unloaded linked containers, hide mode, delete mode, and
-non-empty container preservation.
+The tests cover bulk Series/Season candidate indexing, bounded ancestor
+lookups for ownership, case-distinct linked paths, deletion of a parent with
+descendants in the cleanup snapshot, change-log accuracy, unloaded linked
+containers, hide/delete modes, deeply nested media, virtual/missing media,
+BoxSets, and Playlists.
 
 The lint suite also checks shell scripts, YAML, GitHub Actions, and the
 Makefile. On Arch/CachyOS, install the packaged tools with:
@@ -157,7 +160,7 @@ Go to **Dashboard > Plugins > Ignore Empty Items** to configure:
 | Delete empty collections | On | Remove empty boxsets/collections. |
 | Delete empty folders | On | Remove folders with no media files. |
 | Delete empty playlists | On | Remove playlists with no items. |
-| Log removed items | On | Write a log entry for each removal. |
+| Log cleanup changes | On | Write a log entry when an item is hidden, restored, or deleted; unchanged items are not logged. |
 | Hide instead of delete | On | Tag empty items instead of removing them, and automatically block the tag for regular users. Prevents repeated "item added" webhook notifications. |
 | Skip admins for hide tag | On | Do not block the hide tag for administrators, allowing them to see hidden items. |
 | Hide tag | `plugin-ignore-empty-items-hidden` | The tag applied to empty items when hide mode is enabled. |
@@ -175,15 +178,112 @@ The plugin provides two mechanisms:
    Can also be triggered manually.
 
 Both mechanisms share the same logic and respect the plugin's
-configuration. Saving configuration changes also synchronizes the hide
-tag for existing users and newly created users.
+configuration. Saving configuration changes synchronizes the hide
+tag for existing and newly created users. When the hide tag changes,
+the plugin first saves a `PendingHideTags` journal of possible old and
+new tags in its configuration, before changing any user policy or item.
+It then blocks the new tag for users before migrating item metadata.
+The old tag remains blocked until no items retain it; migration is
+not a database transaction. If an update fails or is cancelled, the
+journal retains every possible source and target tag. After a Jellyfin
+restart, even with no further configuration save, the next post-scan or
+scheduled cleanup uses that saved journal to migrate all remaining tag
+populations and remove their old user-policy blocks. This also works if the
+configured target remains unchanged or changes again after restart. Only
+after item persistence and policy cleanup are verified does the plugin
+commit the recorded previous tag and reduce the journal to the active tag
+(or clear it when hide mode is disabled). It does not save again on every
+unchanged reconciliation. Replacing the configuration during cleanup stops
+the old run before its next metadata update or deletion. A failed
+item metadata update reverts its in-memory tags to their pre-update
+state; the old tag stays blocked until reconciliation succeeds.
+
+Cleanup execution and metadata updates are awaited asynchronously, while
+cleaner phases remain sequential for predictable progress reporting.
+
+If hide mode is enabled with a blank or whitespace-only hide tag,
+cleanup skips all cleaners, including deletion, until a valid tag
+is configured.
 
 ### How emptiness is determined
 
-Items are considered empty when they contain **zero** relevant media or
-child items that are:
-- Non-virtual (not metadata-only placeholders)
-- Non-missing (not marked as unavailable)
+Items are considered empty when they contain zero relevant media or
+child items that count as real media. Non-missing library media requires
+an actual path; pathless library items do not count even if they are
+marked nonvirtual. A nonvirtual, pathless channel-backed media item
+does count as real media. In Jellyfin 12, the `IsMissing` query filter
+uses the item's `IsVirtualItem` state; it does not check whether a retained
+path still exists on disk. Movies and container descendants marked virtual
+do not count as real media even when their paths remain populated.
+TV episode and season ownership follows the indexed physical parent
+hierarchy, not stale `SeriesId` metadata. Seasons belong to the series reached
+through their parent ancestry; a stale series ID cannot make episodes
+count for a different series. An episode whose parent chain cannot
+resolve protects its metadata-indicated series against empty-series
+cleanup. If that ID is missing or does not identify an indexed series,
+empty-series cleanup is skipped for every series in that run, with a
+warning in the server log. The same warning applies to empty-season cleanup
+when an episode has neither a resolvable season nor a resolvable series.
+In hide mode, an empty series can be tagged while its empty seasons are still
+cleaned up independently.
+Ownership lookup loads only ancestors reached from seasons and real
+episodes; it does not hydrate the entire library to build a parent index.
+
+Container cleanup treats linked paths as distinct on case-sensitive platforms,
+so paths differing only by letter case cannot share a cached target. Deleting
+an empty parent also skips its descendants still present in the cleanup snapshot.
+
+Music artists are retained only when an album physically beneath them or
+an album elsewhere in the library that credits them as an artist or album
+artist contains an eligible audio track. Album-artist credits are checked
+through the dedicated `AlbumArtistIds` filter as well as Jellyfin 12's
+combined `ArtistIds` filter. A physical child album need not
+have artist metadata, and compilation albums need not be stored inside
+the artist's folder. A trackless album does not retain its artist, even
+when that album still carries the hide tag in hide mode. For album
+cleanup, an eligible audio track must be nonvirtual and non-missing,
+with either a path or a channel ID; pathless local tracks do not count.
+
+Jellyfin 12 excludes owned items such as alternate versions from
+ordinary library queries. Physical folder and episode indexes,
+movie cleanup, music album and track queries, and hide-tag migration
+explicitly include them so an alternate file cannot make its
+parent appear empty or remain hidden after recovery. Jellyfin
+bypasses presentation-key grouping for the plugin's userless
+queries; cleanup queries still explicitly disable grouping to
+retain distinct physical items if their context changes.
+
+Container cleanup selects enabled folder, BoxSet, and Playlist roots
+without loading the whole library graph. It queries physical children
+by parent ID only as a parent is reached, including owned alternate
+versions, and resolves linked targets by item ID, legacy path, or
+legacy library ID only when that link is visited. Each reached parent's
+physical children are queried once per cleanup. Physical edges are
+checked before persisted links; finding media stops traversal without
+unnecessary linked-child lookups or later loaded-link resolutions.
+Unloaded ordinary folders, BoxSets, and Playlists consult their persisted
+linked-child IDs only when reached without already finding physical
+media. Jellyfin 12 offers only per-container linked-child lookup, not a
+bulk API; selecting all folders can still require one child query and
+one linked-child lookup for each media-free folder. If that lookup
+fails, or a linked-child identity is missing, unresolved, ambiguous, or
+cyclic, the relationship is treated as unknown. Unknown containers
+are preserved; only confirmed-empty items are hidden or removed.
+Media reachable through a cycle can restore previously hidden
+containers regardless of which container was checked first.
+Cancellation is checked during container traversal and before and
+after persisted linked-child lookups. A synchronous lookup already
+running cannot be interrupted, but cancellation stops traversal
+before further lookups or item changes.
+
+For loaded linked children, a non-empty `ItemId` wins. If that
+ID is missing, the plugin does not redirect through possibly stale
+legacy `Path` or `LibraryItemId` fields. An empty or absent `ItemId`
+can resolve through a scoped legacy path query, then a legacy library
+ID only when no path is supplied; an unresolved path stays unknown. This
+conservative choice can leave a previously hidden collection
+hidden until its linked identity can be resolved, rather than
+accidentally deleting it or changing its visibility on stale data.
 
 In hide mode, empty items receive the hide tag and are hidden from users
 whose policies block that tag. In delete mode, the Jellyfin database
@@ -202,10 +302,24 @@ user visibility.
   post-scan task hides or removes them.
 - In delete mode, empty items may reappear on the next scan because the
   files and folders remain on disk.
-- In hide mode, tagged items remain hidden until they contain media or
-  the hide tag is removed. If the plugin is uninstalled without first
-  disabling hide mode, the tags and user policies must be cleaned up
-  manually.
+- In hide mode, tagged items remain hidden until they are confirmed
+  to contain media (including through linked identities) or the hide
+  tag is removed. If the plugin is uninstalled without first disabling
+  hide mode, tags and user policies must be cleaned up manually.
+- Container cleanup avoids a whole-library graph snapshot, but still
+  selects all enabled container roots. Traversing many empty folders
+  can require a child query and linked-child lookup per reached folder;
+  the root list and reachable child lists also consume memory. No
+  representative live Jellyfin database benchmark of query duration,
+  allocations, or peak memory is available; mock fixtures cannot
+  establish large-library performance.
+- Disabling one cleanup category while **Hide instead of delete**
+  remains enabled does not reliably clear existing tags. For example,
+  hidden movies stay tagged; disabling show cleanup while leaving
+  season cleanup enabled removes series tags on the next cleanup.
+  To clear all plugin hide tags and the blocked-tag user policy,
+  disable **Hide instead of delete** and save. This affects every
+  category. Re-enabled categories receive tags after cleanup runs.
 
 ## Uninstalling (hide mode)
 

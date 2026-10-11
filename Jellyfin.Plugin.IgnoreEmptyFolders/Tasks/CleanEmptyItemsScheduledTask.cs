@@ -1,4 +1,5 @@
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -7,6 +8,7 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tasks;
 public class CleanEmptyItemsScheduledTask(
     ILibraryManager libraryManager,
     IUserManager userManager,
+    ILinkedChildrenService linkedChildrenService,
     ILoggerFactory loggerFactory) : IScheduledTask
 {
     public string Name => "Clean Empty Items";
@@ -20,17 +22,16 @@ public class CleanEmptyItemsScheduledTask(
 
     public string Category => "Library";
 
-    public Task ExecuteAsync(
+    public async Task ExecuteAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken)
     {
-        return Task.Run(() =>
-        {
-            var cleaner = new LibraryCleanupManager(
-                libraryManager, userManager, loggerFactory
-            );
-            cleaner.CleanLibrary(progress, cancellationToken);
-        }, cancellationToken);
+        var cleaner = new LibraryCleanupManager(
+            libraryManager,
+            userManager,
+            loggerFactory,
+            linkedChildrenService);
+        await cleaner.CleanLibraryAsync(progress, cancellationToken);
     }
 
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()

@@ -1,24 +1,23 @@
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using Microsoft.Extensions.Logging;
-
 namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tasks;
 
 public class CleanEmptyItemsPostScanTask(
     ILibraryManager libraryManager,
     IUserManager userManager,
+    ILinkedChildrenService linkedChildrenService,
     ILoggerFactory loggerFactory) : ILibraryPostScanTask
 {
-    public Task Run(
+    public async Task Run(
         IProgress<double> progress,
         CancellationToken cancellationToken)
     {
-        return Task.Run(() =>
-        {
-            var cleaner = new LibraryCleanupManager(
-                libraryManager,
-                userManager,
-                loggerFactory);
-            cleaner.CleanLibrary(progress, cancellationToken);
-        }, cancellationToken);
+        var cleaner = new LibraryCleanupManager(
+            libraryManager,
+            userManager,
+            loggerFactory,
+            linkedChildrenService);
+        await cleaner.CleanLibraryAsync(progress, cancellationToken);
     }
 }

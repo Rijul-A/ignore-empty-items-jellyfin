@@ -9,8 +9,12 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 
 public class MusicCleaner(
     ILibraryManager libraryManager,
-    ILogger<MusicCleaner> logger)
-    : BaseItemCleaner(libraryManager, logger)
+    ILogger<MusicCleaner> logger,
+    Func<PluginConfiguration, bool>? isConfigurationCurrent = null)
+    : BaseItemCleaner(
+        libraryManager,
+        logger,
+        isConfigurationCurrent)
 {
     public override double Weight => CleanupWeights.Music;
 
@@ -20,40 +24,43 @@ public class MusicCleaner(
                config.DeleteEmptyMusicAlbums;
     }
 
-    public override int Clean(
+    public override async Task<int> CleanAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        var removedCount = 0;
+        var eligibleAlbums = new Dictionary<Guid, bool>();
+        var changedCount = 0;
 
         if (config.DeleteEmptyMusicArtists)
         {
-            removedCount += CleanArtists(
-                config, progress, cancellationToken
+            changedCount += await CleanArtistsAsync(
+                config, progress, eligibleAlbums, cancellationToken
             );
         }
 
         if (config.DeleteEmptyMusicAlbums)
         {
-            removedCount += CleanAlbums(
-                config, progress, cancellationToken
+            changedCount += await CleanAlbumsAsync(
+                config, progress, eligibleAlbums, cancellationToken
             );
         }
 
-        return removedCount;
+        return changedCount;
     }
 
-    private int CleanArtists(
+    private async Task<int> CleanArtistsAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
+        Dictionary<Guid, bool> eligibleAlbums,
         CancellationToken cancellationToken)
     {
-        var removedCount = 0;
+        var changedCount = 0;
         var artists = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.MusicArtist],
+                GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -67,75 +74,91 @@ public class MusicCleaner(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var albumCount = LibraryManager.GetCount(
+            var hasRealAlbum = HasEligibleAlbum(
                 new InternalItemsQuery
                 {
                     ParentId = artist.Id,
                     IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                    IncludeOwnedItems = true,
+                    GroupByPresentationUniqueKey = false,
                     IsVirtualItem = false,
-                    IsMissing = false,
-                    Limit = 0,
                     DtoOptions = new DtoOptions(false)
-                });
-
-            if (albumCount == 0)
+                },
+                eligibleAlbums,
+                cancellationToken);
+            if (!hasRealAlbum)
             {
-                if (config.LogDeletions)
-                {
-                    Logger.LogInformation(
-                        "Ignore Empty Items: Hiding/removing " +
-                        "artist \"{Name}\"",
-                        artist.Name);
-                }
+                hasRealAlbum = HasEligibleAlbum(
+                    new InternalItemsQuery
+                    {
+                        ArtistIds = [artist.Id],
+                        IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                        IncludeOwnedItems = true,
+                        GroupByPresentationUniqueKey = false,
+                        IsVirtualItem = false,
+                        DtoOptions = new DtoOptions(false)
+                    },
+                    eligibleAlbums,
+                    cancellationToken);
+            }
 
-                if (config.HideInsteadOfDelete)
-                {
-                    TagItem(artist, config.HideTag, cancellationToken);
-                    removedCount++;
-                }
-                else
-                {
-                    try
+            if (!hasRealAlbum)
+            {
+                // Keep a dedicated album-artist filter even though v12
+                // ArtistIds also matches album-artist references.
+                hasRealAlbum = HasEligibleAlbum(
+                    new InternalItemsQuery
                     {
-                        LibraryManager.DeleteItem(
-                            artist,
-                            new DeleteOptions
-                            {
-                                DeleteFileLocation = false
-                            });
-                        removedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(
-                            ex,
-                        "Ignore Empty Items: Failed to remove " +
-                            "artist \"{Name}\"",
-                            artist.Name);
-                    }
+                        AlbumArtistIds = [artist.Id],
+                        IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                        IncludeOwnedItems = true,
+                        GroupByPresentationUniqueKey = false,
+                        IsVirtualItem = false,
+                        DtoOptions = new DtoOptions(false)
+                    },
+                    eligibleAlbums,
+                    cancellationToken);
+            }
+
+            if (!hasRealAlbum)
+            {
+                if (await HideOrDeleteItemAsync(
+                    artist,
+                    "artist",
+                    config,
+                    cancellationToken))
+                {
+                    changedCount++;
                 }
             }
-            else if (config.HideInsteadOfDelete)
+            else if (config.HideInsteadOfDelete &&
+                await UntagItemAsync(
+                    artist,
+                    config,
+                    cancellationToken
+                ))
             {
-                UntagItem(artist, config.HideTag, cancellationToken);
+                changedCount++;
             }
 
             ReportProgress(progress, ++processed, total);
         }
 
-        return removedCount;
+        return changedCount;
     }
 
-    private int CleanAlbums(
+    private async Task<int> CleanAlbumsAsync(
         PluginConfiguration config,
         IProgress<double>? progress,
+        Dictionary<Guid, bool> eligibleAlbums,
         CancellationToken cancellationToken)
     {
-        var removedCount = 0;
+        var changedCount = 0;
         var albums = LibraryManager.GetItemList(
             new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.MusicAlbum],
+                GroupByPresentationUniqueKey = false,
                 DtoOptions = new DtoOptions(false)
             });
 
@@ -149,62 +172,70 @@ public class MusicCleaner(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var trackCount = LibraryManager.GetCount(
-                new InternalItemsQuery
-                {
-                    ParentId = album.Id,
-                    IncludeItemTypes = [BaseItemKind.Audio],
-                    IsVirtualItem = false,
-                    IsMissing = false,
-                    Limit = 0,
-                    DtoOptions = new DtoOptions(false)
-                });
-
-            if (trackCount == 0)
+            if (!HasRealTracks(album, eligibleAlbums))
             {
-                if (config.LogDeletions)
+                if (await HideOrDeleteItemAsync(
+                    album,
+                    "album",
+                    config,
+                    cancellationToken))
                 {
-                    Logger.LogInformation(
-                    "Ignore Empty Items: Hiding/removing album " +
-                        "\"{Name}\"",
-                        album.Name);
-                }
-
-                if (config.HideInsteadOfDelete)
-                {
-                    TagItem(album, config.HideTag, cancellationToken);
-                    removedCount++;
-                }
-                else
-                {
-                    try
-                    {
-                        LibraryManager.DeleteItem(
-                            album,
-                            new DeleteOptions
-                            {
-                                DeleteFileLocation = false
-                            });
-                        removedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(
-                            ex,
-                        "Ignore Empty Items: Failed to remove " +
-                            "album \"{Name}\"",
-                            album.Name);
-                    }
+                    changedCount++;
                 }
             }
-            else if (config.HideInsteadOfDelete)
+            else if (config.HideInsteadOfDelete &&
+                await UntagItemAsync(
+                    album,
+                    config,
+                    cancellationToken
+                ))
             {
-                UntagItem(album, config.HideTag, cancellationToken);
+                changedCount++;
             }
 
             ReportProgress(progress, ++processed, total);
         }
 
-        return removedCount;
+        return changedCount;
+    }
+
+    private bool HasEligibleAlbum(
+        InternalItemsQuery query,
+        Dictionary<Guid, bool> eligibleAlbums,
+        CancellationToken cancellationToken)
+    {
+        foreach (var album in LibraryManager.GetItemList(query))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (HasRealTracks(album, eligibleAlbums))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool HasRealTracks(
+        BaseItem album,
+        Dictionary<Guid, bool> eligibleAlbums)
+    {
+        if (eligibleAlbums.TryGetValue(album.Id, out var eligible))
+        {
+            return eligible;
+        }
+
+        eligible = LibraryManager.GetItemList(
+            new InternalItemsQuery
+            {
+                ParentId = album.Id,
+                IncludeItemTypes = [BaseItemKind.Audio],
+                IncludeOwnedItems = true,
+                GroupByPresentationUniqueKey = false,
+                IsVirtualItem = false,
+                DtoOptions = new DtoOptions(false)
+            }).Any(IsRealMedia);
+        eligibleAlbums.Add(album.Id, eligible);
+        return eligible;
     }
 }

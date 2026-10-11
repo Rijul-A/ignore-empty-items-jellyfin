@@ -1,8 +1,11 @@
+using System.Runtime.CompilerServices;
+
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.IgnoreEmptyFolders.Cleaners;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.IgnoreEmptyFolders;
@@ -13,8 +16,22 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders;
 public class LibraryCleanupManager(
     ILibraryManager libraryManager,
     IUserManager userManager,
-    ILoggerFactory loggerFactory)
+    ILoggerFactory loggerFactory,
+    ILinkedChildrenService? linkedChildrenService = null)
 {
+    private static readonly SemaphoreSlim
+        ConfigurationChangeSemaphore = new(1, 1);
+
+    private static readonly ConditionalWeakTable<
+        Plugin,
+        MigrationState> MigrationStates = new();
+
+    private static readonly Func<
+        Configuration.PluginConfiguration,
+        bool> ConfigurationIsCurrent =
+        static config =>
+            ReferenceEquals(config, Plugin.Instance?.Configuration);
+
     private readonly ILogger<LibraryCleanupManager> _logger =
         loggerFactory.CreateLogger<LibraryCleanupManager>();
 
@@ -22,159 +39,361 @@ public class LibraryCleanupManager(
     [
         new SeriesCleaner(
             libraryManager,
-            loggerFactory.CreateLogger<SeriesCleaner>()),
+            loggerFactory.CreateLogger<SeriesCleaner>(),
+            ConfigurationIsCurrent),
         new MovieCleaner(
             libraryManager,
-            loggerFactory.CreateLogger<MovieCleaner>()),
+            loggerFactory.CreateLogger<MovieCleaner>(),
+            ConfigurationIsCurrent),
         new MusicCleaner(
             libraryManager,
-            loggerFactory.CreateLogger<MusicCleaner>()),
+            loggerFactory.CreateLogger<MusicCleaner>(),
+            ConfigurationIsCurrent),
         new ContainerCleaner(
             libraryManager,
-            loggerFactory.CreateLogger<ContainerCleaner>())
+            loggerFactory.CreateLogger<ContainerCleaner>(),
+            linkedChildrenService,
+            ConfigurationIsCurrent)
     ];
 
     /// <summary>
     /// Handles tag migration and user enrollment
     /// when configuration changes.
     /// </summary>
-    public void HandleConfigurationChanged(
+    public async Task HandleConfigurationChangedAsync(
         CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
-        if (config == null)
+        await ConfigurationChangeSemaphore.WaitAsync(cancellationToken);
+        try
         {
-            return;
+            await ReconcileConfigurationAsync(cancellationToken);
         }
-
-        if (config.HideInsteadOfDelete &&
-            string.IsNullOrWhiteSpace(config.HideTag))
+        finally
         {
-            _logger.LogWarning(
-                "Ignore Empty Items: HideTag is empty, " +
-                "skipping hide mode processing");
-            return;
+            ConfigurationChangeSemaphore.Release();
         }
+    }
 
-        if (!config.HideInsteadOfDelete)
+    private async Task ReconcileConfigurationAsync(
+        CancellationToken cancellationToken)
+    {
+        while (true)
         {
-            if (config.HideInsteadOfDeleteWasActive &&
-                !string.IsNullOrEmpty(config.PreviousHideTag))
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var plugin = Plugin.Instance;
+            if (plugin is null)
             {
-                MigrateTag(
-                    config.PreviousHideTag,
-                    string.Empty,
-                    cancellationToken);
-                config.PreviousHideTag = string.Empty;
-                config.HideInsteadOfDeleteWasActive = false;
-                Plugin.Instance?.SaveConfiguration(config);
+                return;
             }
 
+            var config = plugin.Configuration;
+            if (config.HideInsteadOfDelete &&
+                string.IsNullOrWhiteSpace(config.HideTag))
+            {
+                _logger.LogWarning(
+                    "Ignore Empty Items: HideTag is empty, " +
+                    "skipping hide mode processing");
+                return;
+            }
+
+            var targetTag = config.HideInsteadOfDelete
+                ? config.HideTag
+                : string.Empty;
+            var state = MigrationStates.GetValue(
+                plugin,
+                static _ => new MigrationState());
+            InitializeState(state, config);
+
+            // Keep every plausible source in memory as well as on disk:
+            // a replacement configuration can omit the journal, while a
+            // process restart cannot recover the in-memory history.
+            var pendingTags = state.KnownTags;
+            if (config.PendingHideTags is not null)
+            {
+                foreach (var pendingTag in config.PendingHideTags)
+                {
+                    if (!string.IsNullOrWhiteSpace(pendingTag))
+                    {
+                        pendingTags.Add(pendingTag);
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(state.LastAppliedTag))
+            {
+                pendingTags.Add(state.LastAppliedTag);
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.PreviousHideTag))
+            {
+                pendingTags.Add(config.PreviousHideTag);
+            }
+
+            if (!string.IsNullOrWhiteSpace(targetTag))
+            {
+                pendingTags.Add(targetTag);
+            }
+
+            // Journal before touching any user policy or item. Retain
+            // all entries until every source and its policy cleanup
+            // succeeds.
+            if (config.PendingHideTags is null ||
+                config.PendingHideTags.Length != pendingTags.Count ||
+                !pendingTags.SetEquals(config.PendingHideTags))
+            {
+                if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                    !ReferenceEquals(config, plugin.Configuration) ||
+                    !IsCurrentConfiguration(plugin, targetTag))
+                {
+                    continue;
+                }
+
+                config.PendingHideTags = [.. pendingTags];
+                plugin.SaveConfiguration(config);
+            }
+
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, targetTag))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(targetTag) &&
+                !await EnsureUsersBlockTagAsync(
+                    targetTag,
+                    config.HideTagSkipAdmins,
+                    plugin,
+                    config,
+                    cancellationToken))
+            {
+                continue;
+            }
+
+            var migrationCompleted = true;
+            foreach (var sourceTag in pendingTags)
+            {
+                if (sourceTag.Equals(
+                    targetTag,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (await MigrateTagAsync(
+                        sourceTag,
+                        targetTag,
+                        plugin,
+                        config,
+                        cancellationToken))
+                {
+                    state.LastAppliedTag = targetTag;
+                    continue;
+                }
+
+                migrationCompleted = false;
+                break;
+            }
+
+            if (!migrationCompleted)
+            {
+                continue;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, targetTag))
+            {
+                continue;
+            }
+
+            var wasChanged =
+                !string.Equals(
+                    config.PreviousHideTag,
+                    targetTag,
+                    StringComparison.Ordinal) ||
+                config.HideInsteadOfDeleteWasActive !=
+                    !string.IsNullOrEmpty(targetTag) ||
+                (string.IsNullOrEmpty(targetTag)
+                    ? config.PendingHideTags is null ||
+                        config.PendingHideTags.Length != 0
+                    : config.PendingHideTags is not [var onlyTag] ||
+                        !string.Equals(
+                            onlyTag,
+                            targetTag,
+                            StringComparison.Ordinal));
+            if (wasChanged)
+            {
+                config.PreviousHideTag = targetTag;
+                config.HideInsteadOfDeleteWasActive =
+                    !string.IsNullOrEmpty(targetTag);
+                config.PendingHideTags = string.IsNullOrEmpty(targetTag)
+                    ? []
+                    : [targetTag];
+                plugin.SaveConfiguration(config);
+            }
+
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, targetTag))
+            {
+                continue;
+            }
+
+            state.LastAppliedTag = targetTag;
+            state.KnownTags.Clear();
             return;
         }
-
-        if (!string.IsNullOrEmpty(config.PreviousHideTag) &&
-            !config.PreviousHideTag.Equals(
-                config.HideTag,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            MigrateTag(
-                config.PreviousHideTag,
-                config.HideTag,
-                cancellationToken);
-        }
-
-        var needsSave = false;
-
-        if (!config.HideTag.Equals(
-                config.PreviousHideTag,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            config.PreviousHideTag = config.HideTag;
-            needsSave = true;
-        }
-
-        if (!config.HideInsteadOfDeleteWasActive)
-        {
-            config.HideInsteadOfDeleteWasActive = true;
-            needsSave = true;
-        }
-
-        if (needsSave)
-        {
-            Plugin.Instance?.SaveConfiguration(config);
-        }
-
-        EnsureUsersBlockTag(config.HideTag, cancellationToken);
     }
 
     /// <summary>
     /// Executes all enabled cleanup tasks.
     /// </summary>
-    public void CleanLibrary(
+    public async Task CleanLibraryAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
-        if (config == null)
+        await ConfigurationChangeSemaphore.WaitAsync(cancellationToken);
+        try
         {
-            return;
-        }
-
-        HandleConfigurationChanged(cancellationToken);
-
-        var enabledCleaners = _cleaners
-            .Where(c => c.IsEnabled(config))
-            .ToList();
-
-        if (enabledCleaners.Count == 0)
-        {
-            _logger.LogInformation(
-                "Ignore Empty Items: No cleanup tasks enabled.");
-            progress.Report(100);
-            return;
-        }
-
-        var totalWeight = enabledCleaners.Sum(c => c.Weight);
-        var removedCount = 0;
-        double currentStart = 0;
-
-        foreach (var cleaner in enabledCleaners)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var cleanerWeight = cleaner.Weight;
-            var start = currentStart;
-
-            // Map relative cleaner progress (0-100) to global progress
-            var relativeProgress = new Progress<double>(p =>
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
             {
-                var globalProgress =
-                    start + (p / 100.0 * cleanerWeight);
-                // Normalize if totalWeight != 100
-                progress.Report(globalProgress * 100.0 / totalWeight);
-            });
+                return;
+            }
 
-            removedCount += cleaner.Clean(
-                config,
-                relativeProgress,
-                cancellationToken);
+            if (config.HideInsteadOfDelete &&
+                string.IsNullOrWhiteSpace(config.HideTag))
+            {
+                _logger.LogWarning(
+                    "Ignore Empty Items: HideTag is empty, " +
+                    "skipping hide mode processing");
+                return;
+            }
 
-            currentStart += cleanerWeight;
+            await ReconcileConfigurationAsync(cancellationToken);
+
+            // Reconciliation may observe and replace the plugin
+            // configuration. Do not run cleaners with the object
+            // that was read before it.
+            config = Plugin.Instance?.Configuration;
+            if (config == null ||
+                (config.HideInsteadOfDelete &&
+                string.IsNullOrWhiteSpace(config.HideTag)))
+            {
+                return;
+            }
+
+            var enabledCleaners = _cleaners
+                .Where(c => c.IsEnabled(config))
+                .ToList();
+
+            if (enabledCleaners.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Ignore Empty Items: No cleanup tasks enabled.");
+                progress.Report(100);
+                return;
+            }
+
+            var totalWeight = enabledCleaners.Sum(c => c.Weight);
+            var changedCount = 0;
+            double currentStart = 0;
+
+            foreach (var cleaner in enabledCleaners)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!ConfigurationIsCurrent(config))
+                {
+                    throw new OperationCanceledException(
+                        "Plugin configuration changed during cleanup.");
+                }
+
+                var cleanerWeight = cleaner.Weight;
+                var start = currentStart;
+
+                // Map relative cleaner progress (0-100) to global
+                // progress.
+                var relativeProgress = new Progress<double>(p =>
+                {
+                    var globalProgress =
+                        start + (p / 100.0 * cleanerWeight);
+                    // Normalize if totalWeight != 100.
+                    progress.Report(
+                        globalProgress * 100.0 / totalWeight);
+                });
+
+                changedCount += await cleaner.CleanAsync(
+                    config,
+                    relativeProgress,
+                    cancellationToken);
+                currentStart += cleanerWeight;
+            }
+
+            _logger.LogInformation(
+                "Ignore Empty Items: Total changed {Count} empty items",
+                changedCount);
+
+            progress.Report(100);
         }
-
-        _logger.LogInformation(
-            "Ignore Empty Items: Total removed {Count} empty items",
-            removedCount);
-
-        progress.Report(100);
+        finally
+        {
+            ConfigurationChangeSemaphore.Release();
+        }
     }
 
-    private void MigrateTag(
+    private static void InitializeState(
+        MigrationState state,
+        Configuration.PluginConfiguration config)
+    {
+        if (state.Initialized)
+        {
+            return;
+        }
+
+        state.LastAppliedTag = config.PreviousHideTag;
+        if (!string.IsNullOrWhiteSpace(state.LastAppliedTag))
+        {
+            state.KnownTags.Add(state.LastAppliedTag);
+        }
+
+        state.Initialized = true;
+    }
+
+    private static bool IsCurrentConfiguration(
+        Plugin plugin,
+        string targetTag)
+    {
+        if (!ReferenceEquals(plugin, Plugin.Instance))
+        {
+            return false;
+        }
+
+        var config = plugin.Configuration;
+        return string.IsNullOrEmpty(targetTag)
+            ? !config.HideInsteadOfDelete
+            : config.HideInsteadOfDelete &&
+                !string.IsNullOrWhiteSpace(config.HideTag) &&
+                config.HideTag.Equals(
+                    targetTag,
+                    StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<bool> MigrateTagAsync(
         string oldTag,
         string newTag,
+        Plugin plugin,
+        Configuration.PluginConfiguration config,
         CancellationToken cancellationToken)
     {
+        if (oldTag.Equals(newTag, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (string.IsNullOrEmpty(newTag))
         {
             _logger.LogInformation(
@@ -190,28 +409,54 @@ public class LibraryCleanupManager(
                 newTag);
         }
 
-        var taggedItems = libraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                Tags = [oldTag],
-                DtoOptions = new DtoOptions(false)
-            });
+        var tagQuery = new InternalItemsQuery
+        {
+            Tags = [oldTag],
+            IncludeOwnedItems = true,
+            GroupByPresentationUniqueKey = false,
+            DtoOptions = new DtoOptions(false)
+        };
+        var taggedItems = libraryManager.GetItemList(tagQuery);
+
+        if (!ReferenceEquals(plugin, Plugin.Instance) ||
+            !ReferenceEquals(config, plugin.Configuration) ||
+            !IsCurrentConfiguration(plugin, newTag))
+        {
+            return false;
+        }
 
         foreach (var item in taggedItems)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var tags = item.Tags
-                .Where(t => !t.Equals(
-                    oldTag, StringComparison.OrdinalIgnoreCase));
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, newTag))
+            {
+                return false;
+            }
+
+            var originalTags = item.Tags;
             item.Tags = string.IsNullOrEmpty(newTag)
-                ? [.. tags]
-                : [.. tags, newTag];
-            libraryManager.UpdateItemAsync(
-                item,
-                item.GetParent(),
-                ItemUpdateType.MetadataEdit,
-                cancellationToken)
-                .GetAwaiter().GetResult();
+                ? [.. originalTags.Where(t => !t.Equals(
+                    oldTag, StringComparison.OrdinalIgnoreCase))]
+                : [.. originalTags.Where(t =>
+                    !t.Equals(
+                        oldTag, StringComparison.OrdinalIgnoreCase) &&
+                    !t.Equals(
+                        newTag, StringComparison.OrdinalIgnoreCase)),
+                    newTag];
+            try
+            {
+                await libraryManager.UpdateItemAsync(
+                    item,
+                    item.GetParent(),
+                    ItemUpdateType.MetadataEdit,
+                    cancellationToken);
+            }
+            catch
+            {
+                item.Tags = originalTags;
+                throw;
+            }
         }
 
         _logger.LogInformation(
@@ -219,10 +464,40 @@ public class LibraryCleanupManager(
             "during tag migration",
             taggedItems.Count);
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(plugin, Plugin.Instance) ||
+            !ReferenceEquals(config, plugin.Configuration) ||
+            !IsCurrentConfiguration(plugin, newTag))
+        {
+            return false;
+        }
+
+        // A failed or deferred update must not expose an item by
+        // unblocking its old tag before it is persisted without it.
+        if (libraryManager.GetItemList(tagQuery).Count != 0)
+        {
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, newTag))
+            {
+                return false;
+            }
+
+            throw new InvalidOperationException(
+                $"Hide tag migration from \"{oldTag}\" to " +
+                $"\"{newTag}\" did not persist for all items");
+        }
+
         foreach (var user in userManager.GetUsers())
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, newTag))
+            {
+                return false;
+            }
             var dto = userManager.GetUserDto(user);
             var policy = dto.Policy!;
 
@@ -233,8 +508,7 @@ public class LibraryCleanupManager(
             policy.BlockedTags = [.. policy.BlockedTags
                 .Where(t => !t.Equals(
                     oldTag, StringComparison.OrdinalIgnoreCase))];
-            userManager.UpdatePolicyAsync(user.Id, policy)
-                .GetAwaiter().GetResult();
+            await userManager.UpdatePolicyAsync(user.Id, policy);
 
             _logger.LogInformation(
                 "Ignore Empty Items: Removed old tag \"{OldTag}\" " +
@@ -242,27 +516,55 @@ public class LibraryCleanupManager(
                 oldTag,
                 user.Username);
         }
+
+        return true;
     }
 
-    private void EnsureUsersBlockTag(
+    private async Task<bool> EnsureUsersBlockTagAsync(
         string tag,
+        bool skipAdmins,
+        Plugin plugin,
+        Configuration.PluginConfiguration config,
         CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
         var users = userManager.GetUsers().ToList();
         _logger.LogInformation(
             "Ignore Empty Items: Syncing hide tag for " +
             "{Count} users",
             users.Count);
 
+        if (!ReferenceEquals(plugin, Plugin.Instance) ||
+            !ReferenceEquals(config, plugin.Configuration) ||
+            !IsCurrentConfiguration(plugin, tag))
+        {
+            return false;
+        }
+
         foreach (var user in users)
         {
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, tag))
+            {
+                return false;
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
-            SyncUserTag(user, tag, config?.HideTagSkipAdmins ?? true);
+            await SyncUserTagAsync(user, tag, skipAdmins);
+
+            if (!ReferenceEquals(plugin, Plugin.Instance) ||
+                !ReferenceEquals(config, plugin.Configuration) ||
+                !IsCurrentConfiguration(plugin, tag) ||
+                config.HideTagSkipAdmins != skipAdmins)
+            {
+                return false;
+            }
         }
+
+        return true;
     }
 
-    private void SyncUserTag(
+    private async Task SyncUserTagAsync(
         User user,
         string tag,
         bool skipAdmins)
@@ -276,8 +578,7 @@ public class LibraryCleanupManager(
         if (shouldHaveTag && !hasTag)
         {
             policy.BlockedTags = [.. policy.BlockedTags, tag];
-            userManager.UpdatePolicyAsync(user.Id, policy)
-                .GetAwaiter().GetResult();
+            await userManager.UpdatePolicyAsync(user.Id, policy);
             _logger.LogInformation(
                 "Ignore Empty Items: Added blocked tag \"{Tag}\" " +
                 "for user \"{User}\"",
@@ -289,13 +590,30 @@ public class LibraryCleanupManager(
             policy.BlockedTags = [.. policy.BlockedTags
                 .Where(t => !t.Equals(
                     tag, StringComparison.OrdinalIgnoreCase))];
-            userManager.UpdatePolicyAsync(user.Id, policy)
-                .GetAwaiter().GetResult();
+            await userManager.UpdatePolicyAsync(user.Id, policy);
             _logger.LogInformation(
                 "Ignore Empty Items: Removed blocked tag \"{Tag}\" " +
-                "from user \"{User}\"",
+                "for user \"{User}\"",
                 tag,
                 user.Username);
         }
+    }
+
+    private sealed class MigrationState
+    {
+        public bool Initialized
+        {
+            get; set;
+        }
+
+        public string LastAppliedTag
+        {
+            get; set;
+        } = string.Empty;
+
+        public HashSet<string> KnownTags
+        {
+            get;
+        } = new(StringComparer.OrdinalIgnoreCase);
     }
 }

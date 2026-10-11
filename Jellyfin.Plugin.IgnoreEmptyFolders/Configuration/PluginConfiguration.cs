@@ -45,7 +45,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool DeleteEmptyPlaylists { get; set; } = true;
 
     /// <summary>
-    /// Log when items are deleted.
+    /// Log cleanup changes.
     /// </summary>
     public bool LogDeletions { get; set; } = true;
 
@@ -68,6 +68,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// if the tag is renamed.
     /// </summary>
     public string PreviousHideTag { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Hide tags that may still exist on items or in user policies
+    /// after an interrupted migration.
+    /// </summary>
+    public string[] PendingHideTags { get; set; } = [];
 
     /// <summary>
     /// Tracks whether hide mode was active on the last run,
