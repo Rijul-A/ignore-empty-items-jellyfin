@@ -752,7 +752,8 @@ public sealed class ConfigurationMigrationTests
     }
 
     [Fact]
-    public async Task FailedMigrationRecoversBothTagPopulationsAfterRestart()
+    public async Task
+        FailedMigrationRecoversBothTagPopulationsAfterRestart()
     {
         var originalConfiguration = new PluginConfiguration
         {
@@ -762,7 +763,8 @@ public sealed class ConfigurationMigrationTests
             HideInsteadOfDeleteWasActive = true
         };
         var savedSnapshots = new List<PluginConfiguration>();
-        static PluginConfiguration Snapshot(PluginConfiguration source) =>
+        static PluginConfiguration Snapshot(
+            PluginConfiguration source) =>
             new()
             {
                 HideInsteadOfDelete = source.HideInsteadOfDelete,
@@ -824,7 +826,7 @@ public sealed class ConfigurationMigrationTests
                 itemUpdates++;
                 Assert.NotEmpty(savedSnapshots);
                 Assert.Equal(
-                    failSecondUpdate ? ["A", "B"] : new[] { "A", "B", "C" },
+                    failSecondUpdate ? ["A", "B"] : ["A", "B", "C"],
                     savedSnapshots[^1].PendingHideTags);
                 Assert.Contains(
                     failSecondUpdate ? "B" : "C",
@@ -859,7 +861,7 @@ public sealed class ConfigurationMigrationTests
                 policyUpdates++;
                 Assert.NotEmpty(savedSnapshots);
                 Assert.Equal(
-                    failSecondUpdate ? ["A", "B"] : new[] { "A", "B", "C" },
+                    failSecondUpdate ? ["A", "B"] : ["A", "B", "C"],
                     savedSnapshots[^1].PendingHideTags);
                 persistedBlocks = [.. policy.BlockedTags];
                 return Task.CompletedTask;
@@ -910,7 +912,8 @@ public sealed class ConfigurationMigrationTests
     }
 
     [Fact]
-    public async Task CleanupRecoversInterruptedMigrationAfterRestartWithoutConfigurationChange()
+    public async Task
+        CleanupRecoversInterruptedMigrationAfterRestart()
     {
         var originalConfiguration = new PluginConfiguration
         {
@@ -927,7 +930,8 @@ public sealed class ConfigurationMigrationTests
             DeleteEmptyFolders = false,
             DeleteEmptyPlaylists = false
         };
-        static PluginConfiguration Snapshot(PluginConfiguration source) =>
+        static PluginConfiguration Snapshot(
+            PluginConfiguration source) =>
             new()
             {
                 HideInsteadOfDelete = source.HideInsteadOfDelete,
@@ -940,7 +944,8 @@ public sealed class ConfigurationMigrationTests
                 DeleteEmptyShows = source.DeleteEmptyShows,
                 DeleteEmptySeasons = source.DeleteEmptySeasons,
                 DeleteEmptyMovies = source.DeleteEmptyMovies,
-                DeleteEmptyMusicArtists = source.DeleteEmptyMusicArtists,
+                DeleteEmptyMusicArtists =
+                    source.DeleteEmptyMusicArtists,
                 DeleteEmptyMusicAlbums = source.DeleteEmptyMusicAlbums,
                 DeleteEmptyCollections = source.DeleteEmptyCollections,
                 DeleteEmptyFolders = source.DeleteEmptyFolders,
@@ -991,7 +996,8 @@ public sealed class ConfigurationMigrationTests
                 CancellationToken _) =>
             {
                 Assert.NotEmpty(savedSnapshots);
-                Assert.Equal(["A", "B"], savedSnapshots[^1].PendingHideTags);
+                Assert.Equal(
+                    ["A", "B"], savedSnapshots[^1].PendingHideTags);
                 Assert.Contains("B", persistedBlocks);
                 if (failSecondUpdate && item.Id == secondId)
                 {
@@ -1022,7 +1028,8 @@ public sealed class ConfigurationMigrationTests
             .Returns((Guid _, UserPolicy policy) =>
             {
                 Assert.NotEmpty(savedSnapshots);
-                Assert.Equal(["A", "B"], savedSnapshots[^1].PendingHideTags);
+                Assert.Equal(
+                    ["A", "B"], savedSnapshots[^1].PendingHideTags);
                 persistedBlocks = [.. policy.BlockedTags];
                 return Task.CompletedTask;
             });

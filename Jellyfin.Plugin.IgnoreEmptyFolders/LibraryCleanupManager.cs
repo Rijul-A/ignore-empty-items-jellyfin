@@ -135,8 +135,9 @@ public class LibraryCleanupManager(
                 pendingTags.Add(targetTag);
             }
 
-            // Journal before touching any user policy or item. Retain all
-            // entries until every source and its policy cleanup succeeds.
+            // Journal before touching any user policy or item. Retain
+            // all entries until every source and its policy cleanup
+            // succeeds.
             if (config.PendingHideTags is null ||
                 config.PendingHideTags.Length != pendingTags.Count ||
                 !pendingTags.SetEquals(config.PendingHideTags))

@@ -12,7 +12,8 @@ namespace Jellyfin.Plugin.IgnoreEmptyFolders.Tests;
 public sealed class CleanupChangeLoggingTests
 {
     [Fact]
-    public async Task HideAndRestoreAreLoggedOnlyAfterSuccessfulUpdates()
+    public async Task
+        HideAndRestoreAreLoggedOnlyAfterSuccessfulUpdates()
     {
         var config = new PluginConfiguration
         {
@@ -27,15 +28,23 @@ public sealed class CleanupChangeLoggingTests
         restored.Path = "/media/available.mkv";
         var alreadyVisible = NewMovie("Already visible");
         alreadyVisible.Path = "/media/visible.mkv";
-        var library = LibraryWithMovies(empty, alreadyHidden, restored, alreadyVisible);
+        var library = LibraryWithMovies(
+            empty,
+            alreadyHidden,
+            restored,
+            alreadyVisible);
         var logger = new Mock<ILogger<MovieCleaner>>();
-        var updateFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var updateFinished = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         library.Setup(m => m.UpdateItemAsync(
                 It.IsAny<BaseItem>(), It.IsAny<BaseItem>(),
-                ItemUpdateType.MetadataEdit, It.IsAny<CancellationToken>()))
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()))
             .Returns((BaseItem item, BaseItem parent,
                 ItemUpdateType updateType, CancellationToken token) =>
-                item == empty ? updateFinished.Task : Task.CompletedTask);
+                item == empty
+                    ? updateFinished.Task
+                    : Task.CompletedTask);
 
         var clean = new MovieCleaner(library.Object, logger.Object)
             .CleanAsync(config, null, CancellationToken.None);
@@ -49,7 +58,8 @@ public sealed class CleanupChangeLoggingTests
         Assert.Contains(config.HideTag, alreadyHidden.Tags);
         library.Verify(m => m.UpdateItemAsync(
             It.IsAny<BaseItem>(), It.IsAny<BaseItem>(),
-            ItemUpdateType.MetadataEdit, It.IsAny<CancellationToken>()), Times.Exactly(2));
+            ItemUpdateType.MetadataEdit,
+            It.IsAny<CancellationToken>()), Times.Exactly(2));
         Assert.Equal(
             ["Ignore Empty Items: Hid movie \"Empty\"",
              "Ignore Empty Items: Restored \"Available\""],
@@ -59,7 +69,8 @@ public sealed class CleanupChangeLoggingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FailedHideOrRestoreDoesNotLogChange(bool restore)
+    public async Task
+        FailedHideOrRestoreDoesNotLogChange(bool restore)
     {
         var config = new PluginConfiguration
         {
@@ -77,8 +88,10 @@ public sealed class CleanupChangeLoggingTests
         var logger = new Mock<ILogger<MovieCleaner>>();
         library.Setup(m => m.UpdateItemAsync(
                 It.IsAny<BaseItem>(), It.IsAny<BaseItem>(),
-                ItemUpdateType.MetadataEdit, It.IsAny<CancellationToken>()))
-            .Returns(Task.FromException(new InvalidOperationException("Save failed")));
+                ItemUpdateType.MetadataEdit,
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.FromException(
+                new InvalidOperationException("Save failed")));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new MovieCleaner(library.Object, logger.Object)
@@ -89,7 +102,8 @@ public sealed class CleanupChangeLoggingTests
     }
 
     [Fact]
-    public async Task DeleteLogsOnlyCompletedDeletesAndKeepsFailureWarning()
+    public async Task
+        DeleteLogsOnlyCompletedDeletesAndKeepsFailureWarning()
     {
         var config = new PluginConfiguration
         {
@@ -106,10 +120,13 @@ public sealed class CleanupChangeLoggingTests
             {
                 Assert.Empty(ChangeMessages(logger));
                 if (item == failed)
-                    throw new InvalidOperationException("Delete failed");
+                    throw new InvalidOperationException(
+                        "Delete failed");
             });
 
-        var count = await new MovieCleaner(library.Object, logger.Object)
+        var count = await new MovieCleaner(
+                library.Object,
+                logger.Object)
             .CleanAsync(config, null, CancellationToken.None);
 
         Assert.Equal(1, count);
@@ -117,9 +134,11 @@ public sealed class CleanupChangeLoggingTests
             ["Ignore Empty Items: Deleted movie \"Deleted\""],
             ChangeMessages(logger));
         Assert.Contains(logger.Invocations,
-            invocation => invocation.Method.Name == nameof(ILogger.Log) &&
+            invocation =>
+                invocation.Method.Name == nameof(ILogger.Log) &&
                 (LogLevel)invocation.Arguments[0] == LogLevel.Warning &&
-                invocation.Arguments[2]?.ToString()?.Contains("Failed delete") == true);
+                invocation.Arguments[2]?.ToString()?.Contains(
+                    "Failed delete") == true);
     }
 
     private static Movie NewMovie(string name) => new()
@@ -129,21 +148,35 @@ public sealed class CleanupChangeLoggingTests
         Tags = []
     };
 
-    private static Mock<ILibraryManager> LibraryWithMovies(params Movie[] movies)
+    private static Mock<ILibraryManager> LibraryWithMovies(
+        params Movie[] movies)
     {
         var library = new Mock<ILibraryManager>();
-        library.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+        library.Setup(m => m.GetItemList(
+                It.IsAny<InternalItemsQuery>()))
             .Returns(movies.Cast<BaseItem>().ToList());
         return library;
     }
 
-    private static string[] ChangeMessages(Mock<ILogger<MovieCleaner>> logger) =>
+    private static string[] ChangeMessages(
+        Mock<ILogger<MovieCleaner>> logger) =>
         logger.Invocations
-            .Where(invocation => invocation.Method.Name == nameof(ILogger.Log) &&
-                (LogLevel)invocation.Arguments[0] == LogLevel.Information)
-            .Select(invocation => invocation.Arguments[2]?.ToString() ?? string.Empty)
-            .Where(message => message.StartsWith("Ignore Empty Items: Hid ", StringComparison.Ordinal) ||
-                message.StartsWith("Ignore Empty Items: Restored ", StringComparison.Ordinal) ||
-                message.StartsWith("Ignore Empty Items: Deleted ", StringComparison.Ordinal))
+            .Where(invocation =>
+                invocation.Method.Name == nameof(ILogger.Log) &&
+                (LogLevel)invocation.Arguments[0] ==
+                    LogLevel.Information)
+            .Select(invocation =>
+                invocation.Arguments[2]?.ToString() ??
+                    string.Empty)
+            .Where(message =>
+                message.StartsWith(
+                    "Ignore Empty Items: Hid ",
+                    StringComparison.Ordinal) ||
+                message.StartsWith(
+                    "Ignore Empty Items: Restored ",
+                    StringComparison.Ordinal) ||
+                message.StartsWith(
+                    "Ignore Empty Items: Deleted ",
+                    StringComparison.Ordinal))
             .ToArray();
 }

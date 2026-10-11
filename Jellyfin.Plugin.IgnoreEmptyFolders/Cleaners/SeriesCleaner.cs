@@ -63,7 +63,8 @@ public class SeriesCleaner(
         if (config.DeleteEmptyShows || config.DeleteEmptySeasons)
         {
             // Resolve only the ancestors of seasons and real episodes.
-            // Retain IDs rather than hydrating every item in the library.
+            // Retain IDs rather than hydrating every item in the
+            // library.
             foreach (var item in seriesList.OfType<Series>())
             {
                 seriesIds.Add(item.Id);

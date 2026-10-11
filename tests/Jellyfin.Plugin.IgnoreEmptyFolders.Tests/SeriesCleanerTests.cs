@@ -737,7 +737,8 @@ public sealed class SeriesCleanerTests
     }
 
     [Fact]
-    public async Task NestedOwnedEpisodesUseOnlyRelevantAncestorLookups()
+    public async Task
+        NestedOwnedEpisodesUseOnlyRelevantAncestorLookups()
     {
         var physicalSeries = NewSeries("Physical series");
         var metadataSeries = NewSeries("Metadata series");
@@ -800,13 +801,15 @@ public sealed class SeriesCleanerTests
 
         Assert.Equal(2, changedCount);
         library.Verify(
-            m => m.DeleteItem(physicalSeries, It.IsAny<DeleteOptions>()),
+            m => m.DeleteItem(
+                physicalSeries, It.IsAny<DeleteOptions>()),
             Times.Never);
         library.Verify(
             m => m.DeleteItem(populated, It.IsAny<DeleteOptions>()),
             Times.Never);
         library.Verify(
-            m => m.DeleteItem(metadataSeries, It.IsAny<DeleteOptions>()),
+            m => m.DeleteItem(
+                metadataSeries, It.IsAny<DeleteOptions>()),
             Times.Once);
         library.Verify(
             m => m.DeleteItem(empty, It.IsAny<DeleteOptions>()),
@@ -822,7 +825,8 @@ public sealed class SeriesCleanerTests
     }
 
     [Fact]
-    public async Task UnlistedOwnedSeasonDoesNotAssignEpisodeToStaleSeasonId()
+    public async Task
+        UnlistedOwnedSeasonDoesNotAssignEpisodeToStaleSeasonId()
     {
         var series = NewSeries("Series");
         var ownedSeason = NewSeason(
@@ -863,7 +867,8 @@ public sealed class SeriesCleanerTests
     }
 
     [Fact]
-    public async Task UnlistedPhysicalSeriesDoesNotProtectStaleMetadataSeries()
+    public async Task
+        UnlistedPhysicalSeriesDoesNotProtectStaleMetadataSeries()
     {
         var unlistedSeries = NewSeries("Unlisted physical series");
         var emptyCandidate = NewSeries("Stale metadata series");
@@ -887,10 +892,12 @@ public sealed class SeriesCleanerTests
 
         Assert.Equal(1, changedCount);
         library.Verify(
-            m => m.DeleteItem(emptyCandidate, It.IsAny<DeleteOptions>()),
+            m => m.DeleteItem(
+                emptyCandidate, It.IsAny<DeleteOptions>()),
             Times.Once);
         library.Verify(
-            m => m.DeleteItem(unlistedSeries, It.IsAny<DeleteOptions>()),
+            m => m.DeleteItem(
+                unlistedSeries, It.IsAny<DeleteOptions>()),
             Times.Never);
         library.Verify(
             m => m.GetItemById(unlistedSeries.Id), Times.Once);
@@ -1375,7 +1382,8 @@ public sealed class SeriesCleanerTests
                 if (query.IncludeItemTypes.Length == 0)
                 {
                     throw new InvalidOperationException(
-                        "SeriesCleaner must not hydrate unrestricted library items."
+                        "SeriesCleaner must not hydrate " +
+                        "unrestricted library items."
                     );
                 }
 

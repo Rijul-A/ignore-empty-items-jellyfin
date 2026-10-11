@@ -195,7 +195,8 @@ public sealed class ContainerCleanerTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(false, false)]
-    public async Task UnloadedContainerWithUnresolvedPersistedIdIsUnchanged(
+    public async Task
+        UnloadedContainerWithUnresolvedPersistedIdIsUnchanged(
         bool isBoxSet, bool hideInsteadOfDelete)
     {
         var config = CreateConfig();
@@ -858,22 +859,24 @@ public sealed class ContainerCleanerTests
             Path = "/media/case-distinct-target",
             LinkedChildren = []
         };
-        var nonemptyPlaylist = new MediaBrowser.Controller.Playlists.Playlist
-        {
-            Id = Guid.NewGuid(),
-            LinkedChildren =
+        var nonemptyPlaylist =
+            new MediaBrowser.Controller.Playlists.Playlist
+            {
+                Id = Guid.NewGuid(),
+                LinkedChildren =
             [
                 CreateLegacyLinkedChild(path: media.Path)
             ]
-        };
-        var emptyPlaylist = new MediaBrowser.Controller.Playlists.Playlist
-        {
-            Id = Guid.NewGuid(),
-            LinkedChildren =
+            };
+        var emptyPlaylist =
+            new MediaBrowser.Controller.Playlists.Playlist
+            {
+                Id = Guid.NewGuid(),
+                LinkedChildren =
             [
                 CreateLegacyLinkedChild(path: emptyFolder.Path)
             ]
-        };
+            };
         var library = CreateLibrary(
             [nonemptyPlaylist, emptyPlaylist],
             [nonemptyPlaylist, emptyPlaylist, media, emptyFolder]);
@@ -1687,7 +1690,8 @@ public sealed class ContainerCleanerTests
     }
 
     [Fact]
-    public async Task DeletingParentSkipsDescendantsInContainerSnapshot()
+    public async Task
+        DeletingParentSkipsDescendantsInContainerSnapshot()
     {
         var root = new Folder
         {
